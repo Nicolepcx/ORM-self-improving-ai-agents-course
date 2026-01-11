@@ -31,8 +31,7 @@ Core concepts:
 * Relative feedback integration  
 
 **Hands on notebook:**
-<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
-
+[![Open In Colab](https://img.shields.io/badge/Colab-Open_Notebook-orange?logo=googlecolab)](https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb)
 
 ---
 
@@ -87,7 +86,10 @@ Core concepts:
 * MCP based agent to agent communication  
 
 **Hands on notebook:**
-<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+
+<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 ---
 
