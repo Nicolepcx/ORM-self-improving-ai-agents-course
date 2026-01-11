@@ -31,7 +31,7 @@ Core concepts:
 * Relative feedback integration  
 
 **Hands on notebook:**
-[![Open In Colab](https://img.shields.io/badge/Colab-Open_Notebook-orange?logo=googlecolab)](https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb)
 
 ---
 
