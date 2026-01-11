@@ -60,7 +60,7 @@ def start_exam_timer(
     const interval = setInterval(() => {{
       if (!warned && {warn_seconds} > 0 && totalSeconds === {warn_seconds}) {{
         warned = true;
-        speak("Warning. {warn_minutes} minutes remaining.");
+        speak("{warn_minutes} minutes remaining.");
       }}
 
       if (totalSeconds <= 60) {{
