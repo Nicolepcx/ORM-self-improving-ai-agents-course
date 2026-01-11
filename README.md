@@ -31,7 +31,7 @@ Core concepts:
 * Relative feedback integration  
 
 **Hands on notebook:**
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb)
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb" target="_blank" rel="noopener noreferrer"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
 ---
 
@@ -44,7 +44,7 @@ Core concepts:
 * RULER relative universal LLM elicited rewards  
 
 **Hands on notebook:**
-<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_02_HANDS_ON_reward_function.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_02_HANDS_ON_reward_function.ipynb" target="_blank" rel="noopener noreferrer"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
 
 ---
@@ -58,7 +58,7 @@ Core concepts:
 * Multi trajectory sampling for optimization  
 
 **Hands on notebook:**
-<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_03_HANDS_ON_rock_paper_lizard_spock.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_03_HANDS_ON_rock_paper_lizard_spock.ipynb" target="_blank" rel="noopener noreferrer"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
 
 ---
@@ -72,7 +72,7 @@ Core concepts:
 * Stabilizing RL for large models including MoE architectures  
 
 **Hands on notebook:**
-<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_04_HANDS_ON_additional_histories.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_04_HANDS_ON_additional_histories.ipynb" target="_blank" rel="noopener noreferrer"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
 
 ---
@@ -87,7 +87,7 @@ Core concepts:
 
 **Hands on notebook:**
 
-<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb">
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb" target="_blank" rel="noopener noreferrer">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
