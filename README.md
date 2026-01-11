@@ -3,42 +3,38 @@ It's a quick way to show support for this openly available code. ⭐
 
 ![OReilly_logo_rgb.png](resources%2FOReilly_logo_rgb.png)
 
-Here is the improved **README.md** with your headline, your structure, and your new folder organization for **demos**, **hands-on exercises**, and **example solutions**. Everything is clean, consistent, and ready for a real repository layout.
-
----
-
 # Develop Self-Improving AI Agents with Reinforcement Learning
 
-# Reinforcement Learning for LLMs – Code Repository
-
-This repository provides code examples, notebooks, and reference implementations used throughout the workshop on reinforcement learning for large language models. It covers policy rollouts, reward modeling, trajectory generation, optimization methods, and tool-use training for agentic systems.
+This repository provides the hands-on excercises for the Live Event. It covers policy rollouts, reward modeling, trajectory generation, optimization methods, and tool-use training for agentic systems.
 
 ## Repository Structure
 
 ```
 .
-├── demos/                # Notebooks shown in live demonstrations  
-├── hands_on/             # Participant exercises  
-├── solutions/            # Reference solutions for hands-on work   
+├── hands_on/  # Hands-on exercises     
 └── README.md
 ```
 
 ---
 
-## Contents
+
+---
+
+## Contents and Exercises
 
 ### Section 1 • Foundations of RL for LLMs
 
 Core concepts:
 
-* Policies, rollouts, trajectories, rewards
-* Minimal reinforcement loop for LLMs
-* Relative feedback integration
+* Policies, rollouts, trajectories, rewards  
+* Minimal reinforcement loop for LLMs  
+* Relative feedback integration  
 
-Included:
-* `demos/01_rl_basic_loop.ipynb` – minimal RL loop implementation
-* `hands_on/01_frozen_lake_exercise.ipynb`
-* `solutions/01_frozen_lake_solution.ipynb`
+Hands on notebook:
+
+<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 ---
 
@@ -46,15 +42,15 @@ Included:
 
 Core concepts:
 
-* Reward shaping for LLM behavior
-* Relative ranking vs absolute scoring
-* RULER: Relative Universal LLM-Elicited Rewards
+* Reward shaping for LLM behavior  
+* Relative ranking vs absolute scoring  
+* RULER relative universal LLM elicited rewards  
 
-Included:
+Hands on notebook:
 
-* `demos/02_ruler_relative_scoring_demo.ipynb`
-* `hands_on/02_reward_modeling_exercise.ipynb`
-* `solutions/02_reward_modeling_solution.ipynb`
+<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_02_HANDS_ON_reward_function.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 ---
 
@@ -62,15 +58,15 @@ Included:
 
 Core concepts:
 
-* Agent Reinforcement Trainer (ART) rollout generation
-* Message sequences, actions, and feedback
-* Multi-trajectory sampling for optimization
+* Agent Reinforcement Trainer rollout generation  
+* Message sequences, actions, and feedback  
+* Multi trajectory sampling for optimization  
 
-Included:
+Hands on notebook:
 
-* `demos/03_art_rollout_generation.ipynb`
-* `hands_on/03_rollout_design_exercise.ipynb`
-* `solutions/03_rollout_design_solution.ipynb`
+<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_03_HANDS_ON_rock_paper_lizard_spock.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 ---
 
@@ -78,15 +74,15 @@ Included:
 
 Core concepts:
 
-* GRPO: Group Relative Policy Optimization
-* GSPO: Group Sequence Policy Optimization
-* Stabilizing RL for large models including MoE architectures
+* GRPO group relative policy optimization  
+* GSPO group sequence policy optimization  
+* Stabilizing RL for large models including MoE architectures  
 
-Included:
+Hands on notebook:
 
-* `demos/04_grpo_gspo_optimization.ipynb`
-* `hands_on/04_optimization_exercise.ipynb`
-* `solutions/04_optimization_solution.ipynb`
+<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_04_HANDS_ON_additional_histories.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 ---
 
@@ -94,29 +90,21 @@ Included:
 
 Core concepts:
 
-* Automatic tool-use training via structured task sets
-* Using RULER for tool-use reward evaluation
-* MCP-based agent to agent communication
+* Automatic tool use training via structured task sets  
+* Using RULER for tool use reward evaluation  
+* MCP based agent to agent communication  
 
-Included:
+Hands on notebook:
 
-* `demos/05_mcp_tool_training.ipynb`
-* `hands_on/05_mcp_training_exercise.ipynb`
-* `solutions/05_mcp_training_solution.ipynb`
-
----
-
-## Requirements
-
-* Python 3.10
-* Dependencies listed in `requirements.txt`
-* Optional: MCP server for tool-use training
+<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
 
 ---
-
 
 ## Running the Notebooks
 
-Every notebook contains buttons so that the notebook can be opened and run on Google Colab like this:
+All notebooks are designed to run in Google Colab without local setup.  
+Click the corresponding Open in Colab button above to start an exercise.
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]()   
+
