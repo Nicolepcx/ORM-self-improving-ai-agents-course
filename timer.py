@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from IPython.display import display, Javascript
+
 
 def start_exam_timer(
     enabled=True,
@@ -7,11 +10,28 @@ def start_exam_timer(
     title="⏱️ Timer",
     end_message="Exercise time finished",
 ):
-    if not enabled:
+    """
+    Browser-side countdown timer for Jupyter/Colab.
+
+    enabled can be:
+      - False: do nothing
+      - True: use `minutes`
+      - int/float: interpret as minutes and override `minutes`
+    """
+    if enabled is False:
         return
 
+    if isinstance(enabled, (int, float)) and not isinstance(enabled, bool):
+        minutes = float(enabled)
+
+    if minutes <= 0:
+        return
+
+    total_seconds = int(round(minutes * 60))
+    warn_seconds = int(round(warn_minutes * 60))
+
     js = f"""
-    let totalSeconds = {minutes} * 60;
+    let totalSeconds = {total_seconds};
     let warned = false;
 
     const el = document.createElement("div");
@@ -38,7 +58,7 @@ def start_exam_timer(
     }}
 
     const interval = setInterval(() => {{
-      if (!warned && totalSeconds === {warn_minutes} * 60) {{
+      if (!warned && {warn_seconds} > 0 && totalSeconds === {warn_seconds}) {{
         warned = true;
         speak("Warning. {warn_minutes} minutes remaining.");
       }}
