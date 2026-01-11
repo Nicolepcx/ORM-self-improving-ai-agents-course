@@ -11,7 +11,8 @@ This repository provides the hands-on excercises for the Live Event. It covers p
 
 ```
 .
-├── hands_on/  # Hands-on exercises     
+├── hands_on/  # Hands-on exercises
+├── helper_functions/  # Helper functions for some notebooks     
 └── README.md
 ```
 
