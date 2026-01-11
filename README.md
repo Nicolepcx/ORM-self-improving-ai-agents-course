@@ -30,11 +30,9 @@ Core concepts:
 * Minimal reinforcement loop for LLMs  
 * Relative feedback integration  
 
-Hands on notebook:
+**Hands on notebook:**
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
-<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_01_HANDS_ON_frozen_lake.ipynb">
-  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-</a>
 
 ---
 
@@ -46,11 +44,9 @@ Core concepts:
 * Relative ranking vs absolute scoring  
 * RULER relative universal LLM elicited rewards  
 
-Hands on notebook:
+**Hands on notebook:**
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_02_HANDS_ON_reward_function.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
-<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_02_HANDS_ON_reward_function.ipynb">
-  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-</a>
 
 ---
 
@@ -62,11 +58,9 @@ Core concepts:
 * Message sequences, actions, and feedback  
 * Multi trajectory sampling for optimization  
 
-Hands on notebook:
+**Hands on notebook:**
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_03_HANDS_ON_rock_paper_lizard_spock.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
-<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_03_HANDS_ON_rock_paper_lizard_spock.ipynb">
-  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-</a>
 
 ---
 
@@ -78,11 +72,9 @@ Core concepts:
 * GSPO group sequence policy optimization  
 * Stabilizing RL for large models including MoE architectures  
 
-Hands on notebook:
+**Hands on notebook:**
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_04_HANDS_ON_additional_histories.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
-<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_04_HANDS_ON_additional_histories.ipynb">
-  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-</a>
 
 ---
 
@@ -94,11 +86,8 @@ Core concepts:
 * Using RULER for tool use reward evaluation  
 * MCP based agent to agent communication  
 
-Hands on notebook:
-
-<a target="_blank" href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb">
-  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
-</a>
+**Hands on notebook:**
+<a href="https://colab.research.google.com/github/Nicolepcx/ORM-self-improving-ai-agents-course/blob/main/hands_on/session_05_HANDS_ON_MCP_server_Rube.ipynb" target="_blank"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
 
 ---
 
