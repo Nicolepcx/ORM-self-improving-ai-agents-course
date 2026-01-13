@@ -1,0 +1,36 @@
+import asyncio
+import time
+from mcp_run_python import code_sandbox
+
+def log_handler(level: str, message: str):
+    print(f"{level}: {message}")
+
+code = """
+import numpy, asyncio
+a = numpy.array(thing)
+print(a)
+await asyncio.sleep(1)
+a
+"""
+
+async def main():
+    async with code_sandbox(dependencies=["numpy"], log_handler=log_handler) as sandbox:
+        print("running code")
+        # single run with variables
+        result = await sandbox.eval(code, {"thing": [1, 2, 3]})
+        print(f"{result['status'].title()}:")
+        if result["status"] == "success":
+            print(result["return_value"])
+        else:
+            print(result["error"])
+
+        # parallel runs to show concurrency
+        tic = time.time()
+        results = await asyncio.gather(*[sandbox.eval(code, {"thing": [4, 5, 6]}) for _ in range(10)])
+        toc = time.time()
+        ok = sum(1 for r in results if r["status"] == "success")
+        print(f"Batch runs ok: {ok}/{len(results)}")
+        print(f"Execution time: {toc - tic:.3f} seconds")
+
+if __name__ == "__main__":
+    asyncio.run(main())
