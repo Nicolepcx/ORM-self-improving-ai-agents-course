@@ -1,0 +1,9 @@
+streamlit==1.66.0
+plotly==7.1.0
+pandas
+openai==1.99.1
+python-dotenv==1.2.4
+streamlit-code-editor==0.1.22
+openpipe-art==0.4.11
+composio==0.15.0
+composio-openai==0.15.0

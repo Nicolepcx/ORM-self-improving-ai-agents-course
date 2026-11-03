@@ -1,0 +1,35 @@
+# DigitalOcean App Platform spec for the course lab app (course_app/).
+# Don't create from this file directly: use `course_app/deploy.sh up`, which
+# fills in ${COURSE_PASSWORD}, ${ACCESS_UNTIL} and the API keys without writing them to disk.
+name: rl-course-lab
+region: fra
+services:
+  - name: web
+    github:
+      repo: Nicolepcx/ORM-self-improving-ai-agents-course
+      branch: main
+      deploy_on_push: true
+    source_dir: course_app
+    environment_slug: python
+    run_command: streamlit run app.py --server.port 8080 --server.address 0.0.0.0
+    http_port: 8080
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    health_check:
+      http_path: /_stcore/health
+    envs:
+      - key: COURSE_PASSWORD
+        scope: RUN_TIME
+        type: SECRET
+        value: "${COURSE_PASSWORD}"
+      - key: ACCESS_UNTIL
+        scope: RUN_TIME
+        value: "${ACCESS_UNTIL}"
+      - key: OPENROUTER_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: "${OPENROUTER_API_KEY}"
+      - key: COMPOSIO_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: "${COMPOSIO_API_KEY}"
