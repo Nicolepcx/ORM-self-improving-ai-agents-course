@@ -249,3 +249,37 @@ def training_animation(r: Dict, drift_step: Optional[int], every: int = 1) -> go
                              for f in fig.frames])],
     )
     return fig
+
+
+def rl_loop_svg() -> str:
+    """The RL loop as a cycle diagram (render with st.image)."""
+    boxes = [
+        ("Policy", ("probabilities", "over actions"), "#7c5cd6"),
+        ("Rollouts", ("sample a group", "of answers"), "#2f7de1"),
+        ("Reward", ("the reward model", "scores each one"), "#e0a030"),
+        ("Advantage", ("better or worse", "than expected?"), "#1fa37a"),
+        ("Update", ("logits +=", "lr × advantage"), "#d64545"),
+    ]
+    w, h, gap, y = 176, 120, 30, 20
+    parts = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1010 230" width="1010" height="230">',
+             '<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" '
+             'orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a8a8a"/></marker></defs>']
+    for k, (title, sub, color) in enumerate(boxes):
+        x = 8 + k * (w + gap)
+        parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="12" fill="{color}" fill-opacity="0.14" '
+                     f'stroke="{color}" stroke-width="3"/>')
+        parts.append(f'<text x="{x + w / 2}" y="{y + 42}" text-anchor="middle" font-family="sans-serif" '
+                     f'font-size="23" font-weight="700" fill="{color}">{k + 1} · {title}</text>')
+        for line, text in enumerate(sub):
+            parts.append(f'<text x="{x + w / 2}" y="{y + 76 + 24 * line}" text-anchor="middle" '
+                         f'font-family="sans-serif" font-size="20" fill="#8a8a8a">{text}</text>')
+        if k < len(boxes) - 1:
+            parts.append(f'<line x1="{x + w + 2}" y1="{y + h / 2}" x2="{x + w + gap - 3}" y2="{y + h / 2}" '
+                         'stroke="#8a8a8a" stroke-width="3" marker-end="url(#a)"/>')
+    last_x, first_x = 8 + 4 * (w + gap) + w / 2, 8 + w / 2
+    parts.append(f'<path d="M{last_x},{y + h + 3} V{y + h + 45} H{first_x} V{y + h + 10}" fill="none" '
+                 'stroke="#8a8a8a" stroke-width="3" stroke-dasharray="8 6" marker-end="url(#a)"/>')
+    parts.append(f'<text x="505" y="{y + h + 76}" text-anchor="middle" font-family="sans-serif" font-size="20" '
+                 'fill="#8a8a8a">repeat: no correct answers are ever given, only scores</text>')
+    parts.append("</svg>")
+    return "".join(parts)

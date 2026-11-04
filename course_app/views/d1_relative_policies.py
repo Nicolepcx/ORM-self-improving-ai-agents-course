@@ -47,71 +47,93 @@ tabs = st.tabs(["① How RL works", "② Why advantages", "③ The reward model"
 
 # ======================================================================== ① how RL works
 with tabs[0]:
-    st.markdown("#### The loop: act, get scored, learn")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown("**1 · Policy**\n\nA score (*logit*) per action; softmax turns them into probabilities. "
-                "For an LLM, this is the model itself.")
-    c2.markdown("**2 · Rollouts**\n\nFor one prompt, sample a **group** of answers. Each picks an action and "
-                "produces a transcript.")
-    c3.markdown("**3 · Reward → advantage**\n\nA reward model scores each transcript. The **advantage** says how much "
-                "*better or worse than expected* each one was.")
-    c4.markdown("**4 · Update**\n\n`logits[action] += lr × advantage`: better-than-expected actions become more "
-                "likely, worse ones less likely.")
+    st.markdown("#### Reinforcement learning: learning from scores, not from answers")
     st.markdown(
-        "The agent answers arithmetic prompts with one of six strategies. Some are reliable, some aren't, "
-        "but **the agent doesn't know that**: it can only learn it from rewards."
+        "In supervised learning the model is shown the **correct answer**. In reinforcement learning it never is. "
+        "It **tries** something, gets a **score**, and shifts probability toward what scored **better than "
+        "expected**, away from what scored worse. Repeat thousands of times, and good behaviour emerges."
     )
-    st.dataframe(pd.DataFrame([
-        {"action": "use_tool", "what it does": "calls a calculator", "chance of a wrong answer": "2%"},
-        {"action": "verify", "what it does": "answers, then checks", "chance of a wrong answer": "3%"},
-        {"action": "plan", "what it does": "solves step by step", "chance of a wrong answer": "8%"},
-        {"action": "direct_answer", "what it does": "just answers", "chance of a wrong answer": "10%"},
-        {"action": "ramble", "what it does": "long-winded", "chance of a wrong answer": "35%"},
-        {"action": "refuse", "what it does": "won't answer", "chance of a wrong answer": "100%"},
-    ]), hide_index=True)
+    st.image(viz.rl_loop_svg())
+    c1, c2 = st.columns(2, gap="large")
+    c1.markdown(
+        "**In this demo**\n"
+        "- **Prompt:** an arithmetic question, e.g. *What is 17 + 25?*\n"
+        "- **Actions:** six strategies: `use_tool`, `verify`, `plan`, `direct_answer`, `ramble`, `refuse`\n"
+        "- **Policy:** one logit per action, softmax → probabilities\n"
+        "- **Reward model:** +1 for a correct answer, small bonuses, a length penalty, −0.7 for refusing"
+    )
+    c2.markdown(
+        "**For an LLM agent**\n"
+        "- **Prompt:** the user's task plus the conversation so far\n"
+        "- **Actions:** the tokens and tool calls it generates\n"
+        "- **Policy:** the model's weights\n"
+        "- **Reward model:** a judge LLM, unit tests, a verifier… *and it can be biased*"
+    )
+    with st.expander("How reliable is each action? (the agent does not know this)"):
+        st.dataframe(pd.DataFrame([
+            {"action": "use_tool", "what it does": "calls a calculator", "chance of a wrong answer": "2%"},
+            {"action": "verify", "what it does": "answers, then checks", "chance of a wrong answer": "3%"},
+            {"action": "plan", "what it does": "solves step by step", "chance of a wrong answer": "8%"},
+            {"action": "direct_answer", "what it does": "just answers", "chance of a wrong answer": "10%"},
+            {"action": "ramble", "what it does": "long-winded", "chance of a wrong answer": "35%"},
+            {"action": "refuse", "what it does": "won't answer", "chance of a wrong answer": "100%"},
+        ]), hide_index=True)
 
     st.divider()
-    st.markdown("#### Try it: run the loop one step at a time")
-    st.markdown("Everything below runs the notebook's own functions on **one prompt**. Run a step, look at each stage, "
-                "then run more and watch the policy change.")
+    st.markdown("#### Run the loop: absolute vs relative, side by side")
+    st.markdown(
+        "Both learners run the notebook's functions on **one prompt**. They start from the same uniform policy and "
+        "draw the same random numbers, so **in step 1 they see exactly the same rollouts and rewards**. The only "
+        "difference is step 4: how the advantage is computed. After that, their policies (and so their rollouts) "
+        "start to diverge."
+    )
+
+    def fresh_learner():
+        logits = {a: 0.0 for a in rp.ACTIONS}
+        return {"logits": logits, "baseline": 0.0, "history": [rp.softmax(logits)], "last": None}
 
     def reset_loop():
-        ss.rl_loop = {"logits": {a: 0.0 for a in rp.ACTIONS}, "baseline": 0.0, "step": 0, "last": None,
-                      "history": [rp.softmax({a: 0.0 for a in rp.ACTIONS})]}
+        ss.rl_pair = {"step": 0, "abs": fresh_learner(), "rel": fresh_learner()}
 
-    if "rl_loop" not in ss:
+    if "rl_pair" not in ss:
         reset_loop()
-    c1, c2, c3 = st.columns([1.2, 1.4, 1])
-    method = c1.radio("Advantage", ["Relative (GRPO group advantage)", "Absolute (reward − baseline)"],
-                      key="rl_method", on_change=reset_loop)
-    prompt_id = c2.selectbox("Prompt", [p[0] for p in rp.PROMPTS], format_func=lambda pid: rp.PROMPTS[pid][1],
+    c1, c2 = st.columns([2, 1])
+    prompt_id = c1.selectbox("Prompt", [p[0] for p in rp.PROMPTS], format_func=lambda pid: rp.PROMPTS[pid][1],
                              key="rl_prompt", on_change=reset_loop)
-    miscalibrated = c3.toggle("Miscalibrated reward model", value=True, key="rl_noise", on_change=reset_loop,
+    miscalibrated = c2.toggle("Miscalibrated reward model", value=True, key="rl_noise", on_change=reset_loop,
                               help="Uses the notebook's noise map: this prompt's rewards are scaled and shifted.")
-    relative = method.startswith("Relative")
+    noise = notebook_run["noise_map"] if miscalibrated else None
+    if noise:
+        scale, bias = noise[prompt_id]
+        st.caption(f"This prompt's reward model: scale **{scale:.2f}**, bias **{bias:+.2f}** "
+                   "(observed = clip(scale × raw + bias + noise)).")
 
-    def one_step():
-        state = ss.rl_loop
-        rng = random.Random(1000 + 7919 * prompt_id + state["step"])
-        noise = notebook_run["noise_map"] if miscalibrated else None
-        rollouts = rp.generate_rollouts_for_prompts([rp.PROMPTS[prompt_id]], state["logits"], NB["group_size"],
-                                                    NB["temperature"], state["step"], rng, noise, NB["noise_std"])
+    def learn(learner, relative: bool, seed: int, step: int):
+        rng = random.Random(seed)
+        rollouts = rp.generate_rollouts_for_prompts([rp.PROMPTS[prompt_id]], learner["logits"], NB["group_size"],
+                                                    NB["temperature"], step, rng, noise, NB["noise_std"])
         rewards = [ro.reward for ro in rollouts]
         if relative:
             advantages = rp.compute_group_advantages(rewards)
         else:
-            state["baseline"] = 0.95 * state["baseline"] + 0.05 * (sum(rewards) / len(rewards))
-            advantages = [r - state["baseline"] for r in rewards]
-        before = rp.softmax(state["logits"])
+            learner["baseline"] = 0.95 * learner["baseline"] + 0.05 * (sum(rewards) / len(rewards))
+            advantages = [r - learner["baseline"] for r in rewards]
+        before = rp.softmax(learner["logits"])
         delta = {a: 0.0 for a in rp.ACTIONS}
         for ro, adv in zip(rollouts, advantages):
-            state["logits"][ro.action] += NB["lr"] * adv
+            learner["logits"][ro.action] += NB["lr"] * adv
             delta[ro.action] += NB["lr"] * adv
-        after = rp.softmax(state["logits"])
-        state["step"] += 1
-        state["history"].append(after)
-        state["last"] = dict(rollouts=rollouts, rewards=rewards, advantages=advantages, before=before,
-                             after=after, delta=delta, baseline=state["baseline"])
+        after = rp.softmax(learner["logits"])
+        learner["history"].append(after)
+        learner["last"] = dict(rollouts=rollouts, rewards=rewards, advantages=advantages, before=before,
+                               after=after, delta=delta, baseline=learner["baseline"])
+
+    def one_step():
+        pair = ss.rl_pair
+        seed = 1000 + 7919 * prompt_id + pair["step"]
+        learn(pair["abs"], False, seed, pair["step"])
+        learn(pair["rel"], True, seed, pair["step"])
+        pair["step"] += 1
 
     b1, b2, b3, _ = st.columns([1.2, 1, 1, 2])
     if b1.button("Run one training step", type="primary", icon=":material/play_arrow:"):
@@ -121,73 +143,88 @@ with tabs[0]:
             one_step()
     b3.button("Start over", icon=":material/restart_alt:", on_click=reset_loop)
 
-    last = ss.rl_loop["last"]
-    if last is None:
-        st.info("Press **Run one training step**. The policy starts uniform: every action has probability 1/6.",
+    pair = ss.rl_pair
+    if pair["step"] == 0:
+        st.info("Press **Run one training step**. Both policies start uniform: every action has probability 1/6.",
                 icon=":material/touch_app:")
     else:
-        rollouts, rewards, advs = last["rollouts"], last["rewards"], last["advantages"]
-        st.markdown(f"**Training step {ss.rl_loop['step']}** · prompt: *{rp.PROMPTS[prompt_id][1]}* "
+        st.markdown(f"**Training step {pair['step']}** · *{rp.PROMPTS[prompt_id][1]}* "
                     f"(correct answer {rp.PROMPTS[prompt_id][2]})")
-        left, right = st.columns([1, 1.25], gap="large")
-        with left:
-            st.markdown("**① Policy before the update**")
-            st.plotly_chart(viz.signal_bars(rp.ACTIONS, [last["before"][a] for a in rp.ACTIONS], "",
-                                            "probability", y_range=[0, 1.1], colors=["#7c5cd6"] * 6,
-                                            text_format="{:.2f}"),
-                            config={"displayModeBar": False}, key="rl_before")
-        with right:
-            st.markdown(f"**② {len(rollouts)} rollouts → ③ reward → advantage**")
-            st.dataframe(pd.DataFrame([{
-                "#": i + 1, "action": ro.action,
-                "correct": "✓" if rp.is_correct_answer(ro.transcript, ro.correct_answer) else "✗",
-                "reward": round(r, 3), "advantage": round(a, 3)} for i, (ro, r, a) in enumerate(zip(rollouts, rewards, advs))
-            ]).style.map(lambda v: f"color: {'#1fa37a' if v > 0 else '#d64545'}; font-weight: 600", subset=["advantage"]).format(precision=3),
-                hide_index=True, height=300)
-
-        best, worst = max(range(len(rewards)), key=rewards.__getitem__), min(range(len(rewards)), key=rewards.__getitem__)
-        mean = sum(rewards) / len(rewards)
-        std = math.sqrt(sum((r - mean) ** 2 for r in rewards) / len(rewards))
-        if relative:
+        same = [ro.action for ro in pair["abs"]["last"]["rollouts"]] == [ro.action for ro in pair["rel"]["last"]["rollouts"]]
+        cols = st.columns(2, gap="large")
+        for col, key, title in [(cols[0], "abs", "Absolute (reward − baseline)"), (cols[1], "rel", "Relative (GRPO)")]:
+            last = pair[key]["last"]
+            rewards, advs = last["rewards"], last["advantages"]
+            mean = sum(rewards) / len(rewards)
+            std = math.sqrt(sum((r - mean) ** 2 for r in rewards) / len(rewards))
+            with col:
+                st.markdown(f"**{title}**")
+                if key == "abs":
+                    st.caption(f"A = reward − {last['baseline']:.3f}  (running average of past rewards)")
+                else:
+                    st.caption(f"A = (reward − {mean:.3f}) / {std:.3f}  (this group's mean and std)")
+                st.dataframe(pd.DataFrame([{
+                    "action": ro.action,
+                    "correct": "✓" if rp.is_correct_answer(ro.transcript, ro.correct_answer) else "✗",
+                    "reward": round(r, 3), "advantage": round(a, 3)} for ro, r, a in zip(last["rollouts"], rewards, advs)
+                ]).style.map(lambda v: f"color: {'#1fa37a' if v > 0 else '#d64545'}; font-weight: 600",
+                             subset=["advantage"]).format(precision=3), hide_index=True, height=250)
+                st.plotly_chart(viz.signal_bars(rp.ACTIONS, [last["delta"][a] for a in rp.ACTIONS],
+                                                "④ Update: change of each action's logit", "logit change"),
+                                config={"displayModeBar": False}, key=f"rl_delta_{key}")
+                st.plotly_chart(viz.policy_before_after(last["before"], last["after"], "⑤ Policy before → after"),
+                                config={"displayModeBar": False}, key=f"rl_after_{key}")
+        abs_last, rel_last = pair["abs"]["last"], pair["rel"]["last"]
+        correct = [rp.is_correct_answer(ro.transcript, ro.correct_answer) for ro in abs_last["rollouts"]]
+        if same:
+            wrong_up = [sum(1 for ok, a in zip(correct, last["advantages"]) if a > 0 and not ok) for last in (abs_last, rel_last)]
+            right_down = [sum(1 for ok, a in zip(correct, last["advantages"]) if a < 0 and ok) for last in (abs_last, rel_last)]
             st.markdown(
-                f"**Relative advantage** compares each rollout with the *other rollouts for the same prompt*: "
-                f"group mean **{mean:.3f}**, std **{std:.3f}**.  \n"
-                f"Best · `{rollouts[best].action}`: A = ({rewards[best]:.3f} − {mean:.3f}) / {std:.3f} = **{advs[best]:+.2f}**  \n"
-                f"Worst · `{rollouts[worst].action}`: A = ({rewards[worst]:.3f} − {mean:.3f}) / {std:.3f} = **{advs[worst]:+.2f}**"
+                f"**Same {len(correct)} rollouts, same rewards: only the advantage differs.** "
+                f"Absolute: {wrong_up[0]} wrong answer(s) pushed up, {right_down[0]} correct one(s) pushed down, "
+                f"average advantage **{sum(abs_last['advantages']) / len(correct):+.2f}**. "
+                f"Relative: {wrong_up[1]} wrong up, {right_down[1]} correct down, average advantage **0.00**."
             )
         else:
-            st.markdown(
-                f"**Absolute advantage** compares each rollout with a *running baseline* of past rewards "
-                f"(exponential moving average, now **{last['baseline']:.3f}**).  \n"
-                f"Best · `{rollouts[best].action}`: A = {rewards[best]:.3f} − {last['baseline']:.3f} = **{advs[best]:+.2f}**  \n"
-                f"Worst · `{rollouts[worst].action}`: A = {rewards[worst]:.3f} − {last['baseline']:.3f} = **{advs[worst]:+.2f}**"
-            )
-        left, right = st.columns(2, gap="large")
-        with left:
-            st.markdown("**④ The update:** `logits[action] += lr × advantage`, summed per action")
-            st.plotly_chart(viz.signal_bars(rp.ACTIONS, [last["delta"][a] for a in rp.ACTIONS], "",
-                                            "change of the action's logit"), config={"displayModeBar": False},
-                            key="rl_delta")
-        with right:
-            st.markdown("**Policy after the update**")
-            st.plotly_chart(viz.policy_before_after(last["before"], last["after"], ""),
-                            config={"displayModeBar": False}, key="rl_after")
-        with st.expander("Transcripts of the best and the worst rollout"):
-            c1, c2 = st.columns(2)
-            c1.markdown(f"**Best** · reward {rewards[best]:+.3f} · advantage {advs[best]:+.2f}")
-            c1.code(rollouts[best].transcript, language="text")
-            c2.markdown(f"**Worst** · reward {rewards[worst]:+.3f} · advantage {advs[worst]:+.2f}")
-            c2.code(rollouts[worst].transcript, language="text")
-        if len(ss.rl_loop["history"]) > 2:
-            st.markdown("**The policy over your training steps**")
-            st.line_chart(pd.DataFrame(ss.rl_loop["history"])[rp.ACTIONS], height=240,
-                          x_label="training step", y_label="probability")
-        if not relative and ss.rl_loop["step"] <= 3:
-            st.caption("Notice: early on the baseline is still near 0, so almost every rollout with a positive reward "
-                       "gets a positive advantage, even mediocre ones. Run more steps and watch the baseline catch up.")
+            st.caption("The policies have diverged, so each learner now samples its own rollouts.")
+        if pair["step"] >= 2:
+            hist = st.columns(2, gap="large")
+            for col, key in [(hist[0], "abs"), (hist[1], "rel")]:
+                col.line_chart(pd.DataFrame(pair[key]["history"])[rp.ACTIONS], height=220,
+                               x_label="training step", y_label="probability")
+        if pair["step"] <= 3:
+            st.caption("Early on the absolute baseline is still close to 0, so nearly every positive reward counts as "
+                       "“better than expected”. Run more steps and watch it catch up.")
 
     code_panel("generate_rollouts_for_prompts", rp.generate_rollouts_for_prompts)
     code_panel("compute_group_advantages", rp.compute_group_advantages)
+
+    st.divider()
+    st.markdown("#### Where does “expected” come from?")
+    st.markdown("Every method computes *advantage = reward − what we expected*. They differ in **where the expectation "
+                "comes from**, and that is the whole story of this demo:")
+    c1, c2, c3, c4 = st.columns(4, gap="medium")
+    with c1.container(border=True):
+        st.markdown("**Running baseline**")
+        st.caption("REINFORCE with a baseline · *the absolute method here*")
+        st.markdown("One number: an average of past rewards over **all** prompts. Easy and hard prompts, generous and "
+                    "strict scoring, all mixed: **apples vs oranges**.")
+    with c2.container(border=True):
+        st.markdown("**PPO: a critic**")
+        st.caption("value model V(s)")
+        st.markdown("A **second model**, about as large as the policy, trained to *predict* the expected reward for "
+                    "each prompt. Doubles memory and compute, and when the estimate is wrong, advantages point the "
+                    "wrong way.")
+    with c3.container(border=True):
+        st.markdown("**DPO: preference pairs**")
+        st.caption("offline, no reward model in training")
+        st.markdown("Relative too: **chosen vs rejected** answer to the same prompt. But the pairs are a **fixed "
+                    "dataset**: the model never explores its own new answers, and gets one comparison per pair.")
+    with c4.container(border=True):
+        st.markdown("**GRPO / GSPO: the group**")
+        st.caption("*the relative method here*")
+        st.markdown("Sample **G answers from the current policy** for the same prompt. The group's mean *is* the "
+                    "expected reward, **measured, not estimated**. Same prompt, same reward model: **apples to apples**.")
 
 # ======================================================================== ② why advantages
 with tabs[1]:
@@ -291,7 +328,79 @@ with tabs[1]:
         )
 
     st.divider()
-    st.markdown("##### Part 2 · Now miscalibrate the reward model")
+    st.markdown("##### Part 2 · Apples to apples: why compare within the group?")
+    st.markdown(
+        "A reward model doesn't score every prompt the same way. In the notebook's noise map, one prompt is scored "
+        "**strictly**, another **generously**. Absolute advantages compare all answers with **one global baseline**: "
+        "answers to different prompts, scored with different biases (apples vs oranges). Relative advantages "
+        "compare each answer only with **answers to the same prompt, from the same reward model** (apples to apples)."
+    )
+    pid_by_text = {p[1]: p[0] for p in rp.PROMPTS}
+    pair_ids = [pid_by_text["What is 12 * 6?"], pid_by_text["Compute 75 - 33"]]
+    nm = notebook_run["noise_map"]
+    c1, c2 = st.columns(2)
+    biases = [
+        c1.slider(f"Bias for “{rp.PROMPTS[pair_ids[0]][1]}”", -0.5, 0.5, round(nm[pair_ids[0]][1], 2), 0.01, key="ap_b0"),
+        c2.slider(f"Bias for “{rp.PROMPTS[pair_ids[1]][1]}”", -0.5, 0.5, round(nm[pair_ids[1]][1], 2), 0.01, key="ap_b1"),
+    ]
+    st.caption(f"Defaults are the notebook's real biases for these prompts (scales {nm[pair_ids[0]][0]:.2f} and "
+               f"{nm[pair_ids[1]][0]:.2f} stay fixed). Set both to 0 for a calibrated reward model.")
+    rows, observed = [], []
+    for g, pid in enumerate(pair_ids):
+        scale_g = nm[pid][0]
+        for ro in (ro for ro in notebook_run["abs_rollouts"][0] if ro.prompt_id == pid):
+            raw_r = rp.score_rollout(ro.transcript, ro.correct_answer, ro.action)
+            obs = max(-1.0, min(1.0, scale_g * raw_r + biases[g]))
+            rows.append({"group": g, "prompt": rp.PROMPTS[pid][1], "action": ro.action,
+                         "ok": rp.is_correct_answer(ro.transcript, ro.correct_answer), "observed": obs})
+            observed.append(obs)
+    global_baseline = sum(observed) / len(observed)
+    abs_a = [o - global_baseline for o in observed]
+    rel_a = [0.0] * len(rows)
+    for g in (0, 1):
+        idx = [k for k, row in enumerate(rows) if row["group"] == g]
+        for k, a in zip(idx, rp.compute_group_advantages([observed[k] for k in idx])):
+            rel_a[k] = a
+    apple_labels = [f"{'A' if row['group'] == 0 else 'B'}{k + 1} {row['action']}{' ✓' if row['ok'] else ' ✗'}"
+                    for k, row in enumerate(rows)]
+    group_colors = ["#7c5cd6" if row["group"] == 0 else "#e0a030" for row in rows]
+    lim = max(abs(v) for v in abs_a + rel_a) * 1.25
+    cols = st.columns(2, gap="large")
+    cols[0].plotly_chart(viz.signal_bars(apple_labels, abs_a, f"Absolute: one global baseline ({global_baseline:.2f})",
+                                         "advantage", zero_line=0, y_range=[-lim, lim], colors=group_colors),
+                         config={"displayModeBar": False}, key="ap_abs")
+    cols[1].plotly_chart(viz.signal_bars(apple_labels, rel_a, "Relative: within each prompt's group", "advantage",
+                                         zero_line=0, y_range=[-lim, lim], colors=group_colors),
+                         config={"displayModeBar": False}, key="ap_rel")
+    st.caption(f"Purple (A) = “{rp.PROMPTS[pair_ids[0]][1]}”, amber (B) = “{rp.PROMPTS[pair_ids[1]][1]}”. "
+               "✓ / ✗ = correct or wrong answer.")
+
+    def credit(advs, g):
+        vals = [a for row, a in zip(rows, advs) if row["group"] == g and row["ok"]]
+        return sum(vals) / len(vals) if vals else 0.0
+
+    abs_credit, rel_credit = [credit(abs_a, g) for g in (0, 1)], [credit(rel_a, g) for g in (0, 1)]
+    st.markdown("**Credit for a correct answer** (average advantage of the ✓ rollouts in each group):")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Absolute · prompt A", f"{abs_credit[0]:+.2f}")
+    m2.metric("Absolute · prompt B", f"{abs_credit[1]:+.2f}")
+    m3.metric("Relative · prompt A", f"{rel_credit[0]:+.2f}")
+    m4.metric("Relative · prompt B", f"{rel_credit[1]:+.2f}")
+    ratio = lambda c: max(c) / min(c) if min(c) > 1e-9 else float("inf")
+    wrong_up = [sum(1 for row, a in zip(rows, advs) if not row["ok"] and a > 0) for advs in (abs_a, rel_a)]
+    st.markdown(
+        f"A correct answer is equally good on both prompts, but the absolute method gives the more generously scored "
+        f"prompt **{ratio(abs_credit):.1f}×** the credit of the other, purely because of the reward model's bias. "
+        f"The relative method: **{ratio(rel_credit):.1f}×**. Push the sliders apart (e.g. −0.5 and +0.5) to see the "
+        "absolute credit split further while the relative credit stays put. Wrong answers pushed up: "
+        f"absolute {wrong_up[0]}, relative {wrong_up[1]}."
+    )
+    st.caption("Correct and wrong answers are far apart in reward here (≈ +0.9 vs ≤ −0.1), so a bias of ±0.3 rarely "
+               "flips a sign. It distorts *how much* credit each answer gets, and over thousands of updates that "
+               "teaches the policy the reward model's quirks.")
+
+    st.divider()
+    st.markdown("##### Part 3 · The math: miscalibrate one prompt's reward model")
     st.markdown(
         "Real reward models are biased: one prompt type gets generous scores, another strict ones. "
         "Change how *this prompt* is scored and compare both advantages with the calibrated ones (outlined):"
@@ -637,6 +746,25 @@ with tabs[6]:
     )
     st.link_button("Group Sequence Policy Optimization (paper)", "https://arxiv.org/pdf/2507.18071",
                    icon=":material/description:")
+    st.divider()
+    st.markdown("#### PPO, DPO, GRPO: where the comparison comes from")
+    st.markdown(
+        "| | **PPO** | **DPO** | **GRPO / GSPO** |\n"
+        "|---|---|---|---|\n"
+        "| **“Expected reward” comes from** | a learned critic V(s): an *estimate* | no explicit baseline: "
+        "chosen vs rejected answer | the mean of a group of sampled answers: *measured* |\n"
+        "| **Extra model during training** | critic, about as large as the policy | frozen reference model | "
+        "none besides the reward model or verifier |\n"
+        "| **Data** | online: the policy's own new answers | **offline**: a fixed preference dataset | "
+        "online: the policy's own new answers |\n"
+        "| **Comparisons per prompt** | one answer vs the critic's guess | one pair | a whole group (G answers) |\n"
+        "| **Reward-model bias per prompt** | the critic has to learn it, errors become noisy advantages | "
+        "no reward model in training | cancels inside the group: **apples to apples** |\n"
+        "| **In this demo** | ≈ the absolute method (one estimated baseline) | not simulated | the relative method |"
+    )
+    st.caption("DPO is relative as well (both answers belong to the same prompt), so the shift to GRPO isn't about "
+               "relative vs absolute. It's about learning **online** from the model's own fresh answers, with **many "
+               "comparisons per prompt** and rewards that can be **verified**, without paying for a critic.")
     st.divider()
     st.markdown("#### Key takeaways")
     c1, c2 = st.columns(2, gap="large")
