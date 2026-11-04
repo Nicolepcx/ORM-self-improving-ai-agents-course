@@ -101,12 +101,6 @@ with tabs[0]:
     with st.expander("Question to all: if we removed the length penalty, would the model learn to ramble just to sound smarter?"):
         st.caption("`length_penalty = 0.0009 * len(transcript)` in the reward model")
         st.markdown(f"### {rp.reveal_answer()}")
-    presenter(
-        "- Map back to the presentation: **policy, rollouts, trajectories, rewards**. Here they are as small as possible.\n"
-        "- Emphasise: **no labels**. The only signal is a score, and the score comes from a reward model, "
-        "which is itself imperfect.\n"
-        "- Ask the length-penalty question now; reveal it before moving on (reward hacking)."
-    )
 
 # ======================================================================== scene 2 · one learning step
 def fresh_learner():
@@ -215,14 +209,7 @@ with tabs[1]:
             st.markdown("**The policy over your learning steps**")
             st.line_chart(pd.DataFrame(pair["rel"]["history"])[rp.ACTIONS], height=280,
                           x_label="learning step", y_label="probability")
-    presenter(
-        "- Run **one step** and walk through ① → ⑤ slowly: the group, the scores, the formula with the real "
-        "numbers, the update, the new policy.\n"
-        "- Point at a **trajectory**: that's the full transcript of one rollout.\n"
-        "- Then **Run 10 steps**: probability flows to the reliable strategies (`use_tool`, `verify`) without ever "
-        "being told they're reliable.\n"
-        "- Transition: *why compare with the group instead of just using the score?* → scene 3."
-    )
+
 
 # ======================================================================== scene 3 · why relative
 with tabs[2]:
@@ -334,13 +321,7 @@ with tabs[2]:
              r"{\operatorname{std}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}")
     st.markdown("Sample **G answers to the same prompt x**, score them, and compare each with its own group. "
                 "No critic model to estimate “expected”: the group *measures* it.")
-    presenter(
-        "- Top: **same rollouts, different advantages**. The absolute baseline lags and is shared by all prompts.\n"
-        "- Middle, the key message: a reward model is **biased per prompt**. One global baseline compares answers "
-        "across prompts scored with different biases (**apples vs oranges**); the group compares answers to the "
-        "same prompt under the same bias (**apples to apples**). Push the bias sliders apart.\n"
-        "- Bottom: this is **GRPO's** advantage. PPO would need a critic model to *estimate* the expected reward."
-    )
+
 
 # ======================================================================== scene 4 · train it
 WIDGETS = {"rp_noise": NB["reward_noise"], "rp_drift": NB["drift"], "rp_shift": NB["noise_shift_step"],
@@ -415,13 +396,6 @@ with tabs[3]:
         "the policy.** Even when rewards look similar, the learned behaviour can diverge."
     )
 
-    presenter(
-        "- Press **▶ Play training** and narrate the top row: probability mass moving to one strategy per method.\n"
-        "- Bottom left: the absolute **baseline** (red) chasing the reward; at the drift line it has to re-adapt.\n"
-        "- Bottom right: the advantages the update uses. Relative stays centred and spread out; absolute narrows.\n"
-        "- Result: same task, same reward model, **different learned behaviour**, only because of how the advantage "
-        "is computed. (Seeds vary: the robust difference is the signal, see Deep dive → Training details.)"
-    )
 
 # ======================================================================== scene 5 · takeaways
 with tabs[4]:
