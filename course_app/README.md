@@ -5,6 +5,7 @@ The notebooks stay the "take it home" version.
 
 | Page | Status | Needs |
 |---|---|---|
+| Demo 1 · Relative policies | ✅ | nothing (pure Python; reproduces the notebook's run exactly) |
 | 1 · Frozen Lake | ✅ | nothing (pure Python) |
 | 2 · Reward function | ✅ | OpenRouter (`moonshotai/kimi-k2` for inputs, `deepseek/deepseek-r1-0528` as judge, as in the notebook) |
 | 3 · Rock Paper Lizard Spock | ✅ | OpenRouter (`qwen/qwen-2.5-7b-instruct`, the notebook's base model) |

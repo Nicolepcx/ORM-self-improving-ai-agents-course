@@ -16,6 +16,9 @@ pages = {
     "Course": [
         st.Page("views/home.py", title="Start here", icon=":material/home:", default=True),
     ],
+    "Demos": [
+        st.Page("views/d1_relative_policies.py", title="1 · Relative policies", icon=":material/leaderboard:", url_path="relative-policies"),
+    ],
     "Hands-on": [
         st.Page("views/s1_frozen_lake.py", title="1 · Frozen Lake", icon=":material/ac_unit:", url_path="frozen-lake"),
         st.Page("views/s2_reward_function.py", title="2 · Reward function", icon=":material/rule:", url_path="reward-function"),

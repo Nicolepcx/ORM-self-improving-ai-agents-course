@@ -1,0 +1,147 @@
+"""Interactive (Plotly) versions of the demo notebook's helper_functions figures."""
+
+from collections import defaultdict
+from typing import Dict, List, Optional
+
+import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots as _make_subplots
+
+
+def make_subplots(*args, **kwargs):
+    fig = _make_subplots(*args, **kwargs)
+    fig.update_annotations(font_size=12)
+    return fig
+
+from labs.relative_policies import ACTIONS
+
+ABS = "#2f7de1"   # notebook: blue
+REL = "#f28e2b"   # notebook: orange
+BASE = "#d64545"  # notebook: red dashed
+POS, NEG = "#1fa37a", "#d64545"
+
+
+def _drift(fig, drift_step: Optional[int], rows_cols):
+    if drift_step is None:
+        return
+    for row, col in rows_cols:
+        fig.add_vline(x=drift_step, line=dict(color="gray", dash="dot", width=2), row=row, col=col)
+
+
+def training_summary(abs_stats, rel_stats, abs_pol, rel_pol, drift_step: Optional[int]) -> go.Figure:
+    """plot_training_summary: reward, true correctness, advantage stats, final policy."""
+    steps = [s["step"] for s in abs_stats]
+    fig = make_subplots(rows=2, cols=2, vertical_spacing=0.16, horizontal_spacing=0.08, subplot_titles=(
+        "Average reward (reward model)", "True correctness (not used in training)",
+        "Advantages (the learning signal)", "Final policy"))
+    fig.add_trace(go.Scatter(x=steps, y=[s["avg_reward"] for s in abs_stats], name="Absolute baseline",
+                             line=dict(color=ABS, width=2), legendgroup="abs"), 1, 1)
+    fig.add_trace(go.Scatter(x=steps, y=[s["avg_reward"] for s in rel_stats], name="Group relative",
+                             line=dict(color=REL, width=2), legendgroup="rel"), 1, 1)
+    fig.add_trace(go.Scatter(x=steps, y=[s["baseline"] for s in abs_stats], name="Baseline (absolute)",
+                             line=dict(color=BASE, dash="dash", width=1.5)), 1, 1)
+    fig.add_trace(go.Scatter(x=steps, y=[s["correctness_rate"] for s in abs_stats], showlegend=False,
+                             line=dict(color=ABS, width=2), legendgroup="abs"), 1, 2)
+    fig.add_trace(go.Scatter(x=steps, y=[s["correctness_rate"] for s in rel_stats], showlegend=False,
+                             line=dict(color=REL, width=2), legendgroup="rel"), 1, 2)
+    fig.add_trace(go.Scatter(x=steps, y=[s["mean_adv"] for s in abs_stats], name="mean advantage",
+                             line=dict(color=ABS, width=2), legendgroup="abs", showlegend=False), 2, 1)
+    fig.add_trace(go.Scatter(x=steps, y=[s["mean_adv"] for s in rel_stats],
+                             line=dict(color=REL, width=2), legendgroup="rel", showlegend=False), 2, 1)
+    fig.add_trace(go.Scatter(x=steps, y=[s["std_adv"] for s in abs_stats], name="std advantage (dashed)",
+                             line=dict(color=ABS, dash="dash", width=1.5)), 2, 1)
+    fig.add_trace(go.Scatter(x=steps, y=[s["std_adv"] for s in rel_stats], showlegend=False,
+                             line=dict(color=REL, dash="dash", width=1.5)), 2, 1)
+    fig.add_trace(go.Bar(x=ACTIONS, y=[abs_pol[-1][a] for a in ACTIONS], marker_color=ABS, showlegend=False), 2, 2)
+    fig.add_trace(go.Bar(x=ACTIONS, y=[rel_pol[-1][a] for a in ACTIONS], marker_color=REL, showlegend=False), 2, 2)
+    _drift(fig, drift_step, [(1, 1), (1, 2), (2, 1)])
+    fig.update_yaxes(range=[-1.1, 1.1], row=1, col=1)
+    fig.update_yaxes(range=[0, 1.02], tickformat=".0%", row=1, col=2)
+    fig.update_yaxes(range=[0, 1.02], row=2, col=2)
+    fig.update_xaxes(title_text="training step", row=1, col=1)
+    fig.update_xaxes(title_text="training step", row=1, col=2)
+    fig.update_xaxes(title_text="training step", row=2, col=1)
+    fig.update_layout(height=640, barmode="group", margin=dict(l=10, r=10, t=50, b=10),
+                      legend=dict(orientation="h", y=-0.08))
+    return fig
+
+
+def policy_at_step(abs_p: Dict[str, float], rel_p: Dict[str, float], step: int) -> go.Figure:
+    """Top row of animate_training_comparison: both policies and their difference."""
+    diff = [rel_p[a] - abs_p[a] for a in ACTIONS]
+    fig = make_subplots(rows=1, cols=3, subplot_titles=(
+        f"Absolute · step {step}", f"Relative · step {step}", "Relative − absolute"))
+    fig.add_trace(go.Bar(x=ACTIONS, y=[abs_p[a] for a in ACTIONS], marker_color=ABS), 1, 1)
+    fig.add_trace(go.Bar(x=ACTIONS, y=[rel_p[a] for a in ACTIONS], marker_color=REL), 1, 2)
+    fig.add_trace(go.Bar(x=ACTIONS, y=diff, marker_color=[POS if d >= 0 else NEG for d in diff]), 1, 3)
+    fig.update_yaxes(range=[0, 1.02], row=1, col=1)
+    fig.update_yaxes(range=[0, 1.02], row=1, col=2)
+    fig.update_yaxes(range=[-1.02, 1.02], row=1, col=3)
+    fig.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10))
+    return fig
+
+
+def step_details(step_idx: int, abs_rollouts, abs_stats, rel_rollouts, rel_advantages: List[float]) -> go.Figure:
+    """visualize_step_details: sorted rewards, reward→advantage, advantage histograms, mean advantage by action."""
+    abs_ro, rel_ro = abs_rollouts[step_idx], rel_rollouts[step_idx]
+    baseline = abs_stats[step_idx]["baseline"]
+    abs_r = [r.reward for r in abs_ro]
+    rel_r = [r.reward for r in rel_ro]
+    abs_a = [r - baseline for r in abs_r]
+    rel_a = rel_advantages
+
+    fig = make_subplots(rows=2, cols=3, vertical_spacing=0.18, subplot_titles=(
+        f"Abs rewards · baseline {baseline:.2f}", f"Rel rewards · mean {np.mean(rel_r):.2f}",
+        "Reward → advantage",
+        f"Abs adv · μ {np.mean(abs_a):.2f} σ {np.std(abs_a):.2f}",
+        f"Rel adv · μ {np.mean(rel_a):.2f} σ {np.std(rel_a):.2f}",
+        "Mean adv by action"))
+    fig.add_trace(go.Scatter(y=sorted(abs_r), mode="markers", marker=dict(color=ABS, size=5, opacity=0.6)), 1, 1)
+    fig.add_hline(y=baseline, line=dict(color=BASE, dash="dash", width=2), row=1, col=1)
+    fig.add_trace(go.Scatter(y=sorted(rel_r), mode="markers", marker=dict(color=REL, size=5, opacity=0.6)), 1, 2)
+    fig.add_hline(y=float(np.mean(rel_r)), line=dict(color=BASE, dash="dash", width=2), row=1, col=2)
+    fig.add_trace(go.Scatter(x=abs_r, y=abs_a, mode="markers", name="absolute",
+                             marker=dict(color=ABS, size=5, opacity=0.5)), 1, 3)
+    fig.add_trace(go.Scatter(x=rel_r, y=rel_a, mode="markers", name="relative",
+                             marker=dict(color=REL, size=5, opacity=0.5)), 1, 3)
+    fig.add_trace(go.Histogram(x=abs_a, nbinsx=20, marker_color=ABS, opacity=0.8), 2, 1)
+    fig.add_trace(go.Histogram(x=rel_a, nbinsx=20, marker_color=REL, opacity=0.8), 2, 2)
+    for col in (1, 2):
+        fig.add_vline(x=0, line=dict(color=BASE, dash="dash", width=2), row=2, col=col)
+
+    by_abs, by_rel = defaultdict(list), defaultdict(list)
+    for ro, a in zip(abs_ro, abs_a):
+        by_abs[ro.action].append(a)
+    for ro, a in zip(rel_ro, rel_a):
+        by_rel[ro.action].append(a)
+    order = sorted(ACTIONS, key=lambda a: np.mean(by_abs.get(a, [0])))
+    fig.add_trace(go.Bar(y=order, x=[np.mean(by_abs.get(a, [0])) for a in order], orientation="h",
+                         marker_color=ABS, name="absolute"), 2, 3)
+    fig.add_trace(go.Bar(y=order, x=[np.mean(by_rel.get(a, [0])) for a in order], orientation="h",
+                         marker_color=REL, name="relative"), 2, 3)
+    fig.update_xaxes(title_text="rollout (sorted)", row=1, col=1)
+    fig.update_xaxes(title_text="rollout (sorted)", row=1, col=2)
+    fig.update_xaxes(title_text="observed reward", row=1, col=3)
+    fig.update_yaxes(title_text="advantage", row=1, col=3)
+    fig.update_xaxes(range=[-3.5, 3.5], row=2, col=2)
+    fig.update_layout(height=620, showlegend=False, barmode="group", margin=dict(l=10, r=10, t=50, b=10))
+    return fig
+
+
+def noise_map_figure(prompts, before: Dict, after: Optional[Dict]) -> go.Figure:
+    """Per-prompt reward scale and bias: the miscalibrated reward model, before and after drift."""
+    labels = [p[1] for p in prompts]
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Scale (multiplies the reward)", "Bias (added to the reward)"))
+    for i, (noise, name, color) in enumerate([(before, "before drift", "#7c5cd6"), (after, "after drift", "#e4572e")]):
+        if not noise:
+            continue
+        fig.add_trace(go.Bar(y=labels, x=[noise[p[0]][0] for p in prompts], orientation="h", name=name,
+                             marker_color=color, showlegend=True), 1, 1)
+        fig.add_trace(go.Bar(y=labels, x=[noise[p[0]][1] for p in prompts], orientation="h", name=name,
+                             marker_color=color, showlegend=False), 1, 2)
+    fig.add_vline(x=1, line=dict(color="gray", dash="dot"), row=1, col=1)
+    fig.add_vline(x=0, line=dict(color="gray", dash="dot"), row=1, col=2)
+    fig.update_yaxes(autorange="reversed")
+    fig.update_layout(height=520, barmode="group", margin=dict(l=10, r=10, t=40, b=10),
+                      legend=dict(orientation="h", y=-0.06))
+    return fig
