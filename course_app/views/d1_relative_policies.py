@@ -423,8 +423,6 @@ with tabs[4]:
                    icon=":material/description:")
     takeaway("<b>Relative feedback turns reward into within-prompt advantage, so learning is driven by ranking rather "
              "than absolute scale.</b>")
-    presenter("- Three takeaways, then the table: **where the expected reward comes from** is the whole difference "
-              "between PPO, DPO and GRPO.\n- Point attendees to the **Deep dive** tab and the notebook for after the session.")
 
 # ======================================================================== deep dive
 with tabs[5]:
