@@ -82,13 +82,13 @@ with tabs[0]:
     if "rl_loop" not in ss:
         reset_loop()
     c1, c2, c3 = st.columns([1.2, 1.4, 1])
-    method = c1.radio("Advantage", ["Group relative (z-score)", "Absolute (reward − baseline)"],
+    method = c1.radio("Advantage", ["Relative (GRPO group advantage)", "Absolute (reward − baseline)"],
                       key="rl_method", on_change=reset_loop)
     prompt_id = c2.selectbox("Prompt", [p[0] for p in rp.PROMPTS], format_func=lambda pid: rp.PROMPTS[pid][1],
                              key="rl_prompt", on_change=reset_loop)
     miscalibrated = c3.toggle("Miscalibrated reward model", value=True, key="rl_noise", on_change=reset_loop,
                               help="Uses the notebook's noise map: this prompt's rewards are scaled and shifted.")
-    relative = method.startswith("Group")
+    relative = method.startswith("Relative")
 
     def one_step():
         state = ss.rl_loop
@@ -204,47 +204,91 @@ with tabs[1]:
     st.markdown(f"Below is one real group from the notebook's first training step: {len(group)} rollouts for "
                 f"*{group[0].prompt}*, scored by the **well-calibrated** reward model (`score_rollout`).")
 
-    st.markdown("##### Part 1 · Why not just use the reward?")
-    signal = st.radio("Update the policy with…", ["the raw reward", "reward − baseline", "z-score within the group"],
-                      horizontal=True, key="adv_signal")
-    baseline = st.slider("Baseline (what we expect to get)", -0.5, 1.0, 0.5, 0.05, key="adv_baseline",
-                         disabled=signal != "reward − baseline")
+    st.markdown("##### Part 1 · Absolute vs relative advantage, side by side")
+    st.markdown(
+        "Both methods turn the **same rewards** into advantages, they just compare against a different reference:\n"
+        "- **Absolute:** against a running **baseline**, an average of past rewards over *all* prompts.\n"
+        "- **Relative (GRPO/GSPO):** against the **other rollouts for the same prompt**: subtract the group mean, "
+        "divide by the group's standard deviation."
+    )
+    nb_baselines = {k: notebook_run["abs_stats"][k - 1]["baseline"] for k in (1, 21, NB["steps"])}
+    baseline = st.slider("Absolute baseline b", -0.5, 1.0, round(nb_baselines[1], 2), 0.01, key="adv_baseline")
+    st.caption(f"Starts at the baseline the absolute method actually had at this step in the notebook "
+               f"(**{nb_baselines[1]:.3f}**; it was {nb_baselines[21]:.3f} at step 21 and {nb_baselines[NB['steps']]:.3f} "
+               f"at step {NB['steps']}). Slide it to see how much the absolute signal depends on it.")
     mean = sum(raw) / len(raw)
-    values = {"the raw reward": raw,
-              "reward − baseline": [r - baseline for r in raw],
-              "z-score within the group": rp.compute_group_advantages(raw)}[signal]
-    push = {a: 0.0 for a in rp.ACTIONS}
-    for ro, v in zip(group, values):
-        push[ro.action] += NB["lr"] * v
+    std = math.sqrt(sum((r - mean) ** 2 for r in raw) / len(raw))
+    abs_adv = [r - baseline for r in raw]
+    rel_adv = rp.compute_group_advantages(raw)
+    limit = max(abs(v) for v in abs_adv + rel_adv) * 1.25
+
+    def push(advantages):
+        totals = {a: 0.0 for a in rp.ACTIONS}
+        for ro, v in zip(group, advantages):
+            totals[ro.action] += NB["lr"] * v
+        return totals
+
+    abs_push, rel_push = push(abs_adv), push(rel_adv)
+    push_limit = max(abs(v) for v in list(abs_push.values()) + list(rel_push.values())) * 1.3
     left, right = st.columns(2, gap="large")
-    left.plotly_chart(viz.signal_bars(labels, values, "Signal per rollout", signal, zero_line=0),
-                      config={"displayModeBar": False}, key="adv_signal_chart")
-    right.plotly_chart(viz.signal_bars(rp.ACTIONS, [push[a] for a in rp.ACTIONS], "Resulting push per action",
-                                       "logit change"), config={"displayModeBar": False}, key="adv_push_chart")
-    pushed_up = [a for a in rp.ACTIONS if push[a] > 1e-9]
-    wrong_up = sum(1 for ro, v in zip(group, values) if v > 0 and not rp.is_correct_answer(ro.transcript, ro.correct_answer))
-    if signal == "the raw reward":
+    with left:
+        st.markdown("**Absolute**")
+        st.caption(f"A = reward − {baseline:.3f}")
+        st.plotly_chart(viz.signal_bars(labels, abs_adv, "Advantage per rollout", "advantage", zero_line=0,
+                                        y_range=[-limit, limit]), config={"displayModeBar": False}, key="adv_abs")
+        st.plotly_chart(viz.signal_bars(rp.ACTIONS, [abs_push[a] for a in rp.ACTIONS], "Push per action",
+                                        "logit change", y_range=[-push_limit, push_limit]),
+                        config={"displayModeBar": False}, key="adv_abs_push")
+    with right:
+        st.markdown("**Relative (GRPO)**")
+        st.caption(f"A = (reward − {mean:.3f}) / {std:.3f}")
+        st.plotly_chart(viz.signal_bars(labels, rel_adv, "Advantage per rollout", "advantage", zero_line=0,
+                                        y_range=[-limit, limit]), config={"displayModeBar": False}, key="adv_rel")
+        st.plotly_chart(viz.signal_bars(rp.ACTIONS, [rel_push[a] for a in rp.ACTIONS], "Push per action",
+                                        "logit change", y_range=[-push_limit, push_limit]),
+                        config={"displayModeBar": False}, key="adv_rel_push")
+
+    correct = [rp.is_correct_answer(ro.transcript, ro.correct_answer) for ro in group]
+    st.dataframe(pd.DataFrame([{
+        "#": i + 1, "action": ro.action, "correct": "✓" if ok else "✗", "reward": round(r, 3),
+        "absolute A": round(a, 3), "relative A": round(g, 3),
+        "same direction": "yes" if (a > 0) == (g > 0) else "no"}
+        for i, (ro, ok, r, a, g) in enumerate(zip(group, correct, raw, abs_adv, rel_adv))]), hide_index=True)
+
+    abs_mean = sum(abs_adv) / len(abs_adv)
+    wrong_up_abs = sum(1 for ok, a in zip(correct, abs_adv) if a > 0 and not ok)
+    wrong_up_rel = sum(1 for ok, g in zip(correct, rel_adv) if g > 0 and not ok)
+    disagree = sum(1 for a, g in zip(abs_adv, rel_adv) if (a > 0) != (g > 0))
+    st.markdown(
+        f"- **Centre:** the absolute advantages average **{abs_mean:+.3f}**, the relative ones **0.000**. "
+        "An absolute signal with a non-zero mean pushes *everything* in the group up (or down) a bit, on top of the "
+        "useful part.\n"
+        f"- **Direction:** {disagree} of {len(group)} rollouts get a different sign. Wrong answers pushed up: "
+        f"absolute **{wrong_up_abs}**, relative **{wrong_up_rel}**.\n"
+        f"- **Scale:** relative advantages always have std 1 within the group, whatever the rewards; the absolute "
+        f"ones have the rewards' own spread ({std:.3f}). Move the baseline: only the absolute side changes."
+    )
+    with st.expander("Why not update with the raw reward directly?"):
         positive = sum(r > 0 for r in raw)
-        generous = [max(-1.0, min(1.0, r + 0.4)) for r in raw]
-        generous_push = {a: 0.0 for a in rp.ACTIONS}
-        for ro, v in zip(group, generous):
-            generous_push[ro.action] += NB["lr"] * v
+        generous_push = push([max(-1.0, min(1.0, r + 0.4)) for r in raw])
         generous_up = [a for a in rp.ACTIONS if generous_push[a] > 1e-9]
-        st.warning(
-            f"Here {positive} of {len(raw)} rewards are positive, so the raw reward points roughly the right way, but "
-            "only because this reward model happens to be **centred near zero**. A raw reward has no sense of "
-            f"*better than what*. Give the same answers a generous reward model (+0.4 on every score): then "
-            f"**{len(generous_up)} of {len(rp.ACTIONS)} actions get pushed up** ({', '.join(generous_up)}), "
-            "including ones that only produced wrong answers.", icon=":material/trending_up:")
-    elif signal == "reward − baseline":
-        st.info(f"Subtracting a baseline gives the update a **direction**: above the baseline → up, below → down. "
-                f"But the result depends on where the baseline sits: try 0 and 0.9. Right now {wrong_up} wrong "
-                "answer(s) get a positive signal. The absolute method learns its baseline as a running average of "
-                "rewards across all prompts.", icon=":material/tune:")
-    else:
-        st.success(f"The z-score uses the **group itself as the baseline** (mean {mean:.3f}) and divides by the "
-                   "group's spread: the best rollouts are pushed up, the worst down, always centred on 0 with a "
-                   "consistent scale. No baseline to tune.", icon=":material/check_circle:")
+        st.markdown(
+            f"A raw reward has no sense of *better than what*. Here {positive} of {len(raw)} rewards are positive, "
+            "so it happens to point roughly the right way, only because this reward model is centred near zero. "
+            f"Give the same answers a generous reward model (+0.4 on every score): then {len(generous_up)} of "
+            f"{len(rp.ACTIONS)} actions get pushed up ({', '.join(generous_up)}), including ones that only produced "
+            "wrong answers. That is what a baseline, and better still the group, fixes."
+        )
+    with st.expander("Is this exactly how GRPO and GSPO compute it?"):
+        st.markdown(
+            "Yes, up to one detail. GRPO (DeepSeekMath) and GSPO (Qwen) both use the group-normalized advantage "
+            "*(reward − group mean) / group std*, which statistically is a z-score within the group. "
+            "GSPO changes the importance ratio and clipping to the sequence level, not the advantage. The detail: "
+            "the notebook divides by the **population** std (and uses 1 when all rewards are equal); typical "
+            "GRPO implementations use the **sample** std plus a small ε. That rescales the advantages slightly but "
+            "never changes their sign or ranking. Some variants drop the std division altogether "
+            "(e.g. Dr. GRPO), keeping only *reward − group mean*."
+        )
 
     st.divider()
     st.markdown("##### Part 2 · Now miscalibrate the reward model")
@@ -268,7 +312,7 @@ with tabs[1]:
     m1.metric("Absolute: largest change of an advantage", f"{abs_change:.2f}")
     m2.metric("Relative: largest change of an advantage", f"{rel_change:.2f}")
     m3.metric("Rewards clipped at ±1", f"{clipped} of {len(raw)}")
-    st.markdown("Why the relative advantages don't move: for any scale *s* > 0 and bias *b*, the z-score cancels both:")
+    st.markdown("Why the relative advantages don't move: for any scale *s* > 0 and bias *b*, the group normalization cancels both:")
     st.latex(r"\frac{(s\,r_i + b) - \operatorname{mean}(s\,r + b)}{\operatorname{std}(s\,r + b)}"
              r"= \frac{s\,(r_i - \bar r)}{s\,\sigma_r} = \frac{r_i - \bar r}{\sigma_r}")
     if scale == 1.0 and bias == 0.0:
@@ -435,7 +479,7 @@ with tabs[3]:
     st.markdown("##### Experiments")
     for question, answer in [
         ("Switch the **miscalibrated reward model off**. Which method does better now?",
-         "Often the absolute method. Without per-prompt bias there is nothing for the z-score to cancel, and dividing "
+         "Often the absolute method. Without per-prompt bias there is nothing for the group normalization to cancel, and dividing "
          "by a small within-group spread can amplify tiny reward differences between equally good answers. Relative "
          "feedback is about **robustness to a miscalibrated reward model**, not a free accuracy boost."),
         ("Keep the notebook settings and change **only the seed** a few times. How stable is the gap?",
@@ -443,7 +487,7 @@ with tabs[3]:
          "side. What stays the same on every seed is the **advantage signal**: centred and well-scaled for the relative "
          "method, shrinking for the absolute one (bottom left panel). Always compare RL methods across several seeds."),
         ("Set the **group size to 2**. What happens to the relative method?",
-         "With two rollouts the z-score is always ±1: it only says which of the two was better. Larger groups give a "
+         "With two rollouts the group advantage is always ±1: it only says which of the two was better. Larger groups give a "
          "more informative ranking, which is why GRPO samples many answers per prompt."),
         ("Move the **drift** early (step 10) or late (step 70). Where do you see it?",
          "In the reward curves and the absolute baseline, which has to re-adapt. The relative advantages keep their "
@@ -456,7 +500,7 @@ with tabs[3]:
     code_panel("train_absolute_baseline", rp.train_absolute_baseline,
                "Advantage = reward − running baseline (exponential moving average across all prompts).")
     code_panel("train_group_relative", [rp.train_group_relative, rp.group_relative_advantages],
-               "Advantage = z-score within each prompt group. Same update for both: `logits[action] += lr * advantage`.")
+               "Advantage = (reward − group mean) / group std within each prompt group, as in GRPO. Same update for both: `logits[action] += lr * advantage`.")
     st.caption("Policy update note: like the notebook, this uses a bandit-style shortcut (`logits += lr * advantage`) "
                "instead of gradients of log-probabilities, to show the effect of the advantage construction clearly.")
 

@@ -295,7 +295,7 @@ def train_group_relative(prompts, steps, group_size, temperature, lr, rng,
 
         rewards = [r.reward for r in rollouts]
 
-        # Compute advantages per prompt group (relative feedback, z-score normalization)
+        # Compute advantages per prompt group (relative feedback: GRPO-style group normalization)
         advantages = group_relative_advantages(rollouts)
 
         # Update policy (pedagogical shortcut: bandit-style update)
@@ -309,7 +309,7 @@ def train_group_relative(prompts, steps, group_size, temperature, lr, rng,
 
 
 def group_relative_advantages(rollouts: List[Rollout]) -> List[float]:
-    """z-score advantages within each prompt group, in rollout order."""
+    """GRPO-style group advantages, (reward - group mean) / group std, in rollout order."""
     rewards = [r.reward for r in rollouts]
     advantages = [0.0 for _ in rollouts]
     by_prompt: Dict[int, List[int]] = {}

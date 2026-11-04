@@ -184,7 +184,7 @@ def signal_bars(labels: List[str], values: List[float], title: str, y_title: str
 def compare_advantages(labels: List[str], absolute: List[float], relative: List[float],
                        abs_ref: List[float], rel_ref: List[float]) -> go.Figure:
     """Absolute vs relative advantages for one group, against the well-calibrated reference (outline)."""
-    fig = make_subplots(rows=1, cols=2, subplot_titles=("Absolute: reward − baseline", "Relative: z-score in the group"))
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Absolute: reward − baseline", "Relative (GRPO): group mean & std"))
     for col, now, ref, color in [(1, absolute, abs_ref, ABS), (2, relative, rel_ref, REL)]:
         fig.add_trace(go.Bar(x=labels, y=ref, marker=dict(color="rgba(0,0,0,0)", line=dict(color="gray", width=1.5)),
                              name="calibrated reward model", showlegend=col == 1), 1, col)
