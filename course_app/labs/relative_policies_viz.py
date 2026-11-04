@@ -28,8 +28,10 @@ def _drift(fig, drift_step: Optional[int], rows_cols):
         fig.add_vline(x=drift_step, line=dict(color="gray", dash="dot", width=2), row=row, col=col)
 
 
-def training_summary(abs_stats, rel_stats, abs_pol, rel_pol, drift_step: Optional[int]) -> go.Figure:
-    """plot_training_summary: reward, true correctness, advantage stats, final policy."""
+def training_summary(abs_stats, rel_stats, abs_pol, rel_pol, drift_step: Optional[int],
+                     previous: Optional[Dict] = None) -> go.Figure:
+    """plot_training_summary: reward, true correctness, advantage stats, final policy.
+    `previous` (stats of the last run) is drawn dotted in the correctness panel for comparison."""
     steps = [s["step"] for s in abs_stats]
     fig = make_subplots(rows=2, cols=2, vertical_spacing=0.16, horizontal_spacing=0.08, subplot_titles=(
         "Average reward (reward model)", "True correctness (not used in training)",
@@ -44,6 +46,12 @@ def training_summary(abs_stats, rel_stats, abs_pol, rel_pol, drift_step: Optiona
                              line=dict(color=ABS, width=2), legendgroup="abs"), 1, 2)
     fig.add_trace(go.Scatter(x=steps, y=[s["correctness_rate"] for s in rel_stats], showlegend=False,
                              line=dict(color=REL, width=2), legendgroup="rel"), 1, 2)
+    if previous:
+        for key, color in (("abs_stats", ABS), ("rel_stats", REL)):
+            prev = previous[key]
+            fig.add_trace(go.Scatter(x=[s["step"] for s in prev], y=[s["correctness_rate"] for s in prev],
+                                     line=dict(color=color, dash="dot", width=1.5), opacity=0.6,
+                                     name="previous run (dotted)", showlegend=key == "abs_stats"), 1, 2)
     fig.add_trace(go.Scatter(x=steps, y=[s["mean_adv"] for s in abs_stats], name="mean advantage",
                              line=dict(color=ABS, width=2), legendgroup="abs", showlegend=False), 2, 1)
     fig.add_trace(go.Scatter(x=steps, y=[s["mean_adv"] for s in rel_stats],
@@ -144,4 +152,100 @@ def noise_map_figure(prompts, before: Dict, after: Optional[Dict]) -> go.Figure:
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=520, barmode="group", margin=dict(l=10, r=10, t=40, b=10),
                       legend=dict(orientation="h", y=-0.06))
+    return fig
+
+
+# ------------------------------------------------------------------ explainers
+def policy_before_after(before: Dict[str, float], after: Dict[str, float], title: str) -> go.Figure:
+    """One policy update: probabilities before (ghost) and after (solid)."""
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=ACTIONS, y=[before[a] for a in ACTIONS], name="before", marker_color="rgba(127,127,127,0.35)"))
+    fig.add_trace(go.Bar(x=ACTIONS, y=[after[a] for a in ACTIONS], name="after", marker_color="#7c5cd6"))
+    fig.update_layout(title=dict(text=title, font_size=13), height=290, barmode="group", yaxis=dict(range=[0, 1.02]),
+                      margin=dict(l=10, r=10, t=40, b=10), legend=dict(orientation="h", y=1.12, x=1, xanchor="right"))
+    return fig
+
+
+def signal_bars(labels: List[str], values: List[float], title: str, y_title: str, y_range=None,
+                zero_line: Optional[float] = None, colors: Optional[List[str]] = None,
+                text_format: str = "{:+.2f}") -> go.Figure:
+    fig = go.Figure(go.Bar(x=labels, y=values,
+                           marker_color=colors or [POS if v > 0 else NEG for v in values],
+                           text=[text_format.format(v) for v in values], textposition="outside", cliponaxis=False))
+    if zero_line is not None:
+        fig.add_hline(y=zero_line, line=dict(color="gray", dash="dash"))
+    fig.update_layout(title=dict(text=title, font_size=13), height=300, yaxis_title=y_title,
+                      margin=dict(l=10, r=10, t=40, b=10), showlegend=False)
+    if y_range:
+        fig.update_yaxes(range=y_range)
+    return fig
+
+
+def compare_advantages(labels: List[str], absolute: List[float], relative: List[float],
+                       abs_ref: List[float], rel_ref: List[float]) -> go.Figure:
+    """Absolute vs relative advantages for one group, against the well-calibrated reference (outline)."""
+    fig = make_subplots(rows=1, cols=2, subplot_titles=("Absolute: reward − baseline", "Relative: z-score in the group"))
+    for col, now, ref, color in [(1, absolute, abs_ref, ABS), (2, relative, rel_ref, REL)]:
+        fig.add_trace(go.Bar(x=labels, y=ref, marker=dict(color="rgba(0,0,0,0)", line=dict(color="gray", width=1.5)),
+                             name="calibrated reward model", showlegend=col == 1), 1, col)
+        fig.add_trace(go.Bar(x=labels, y=now, marker_color=color, opacity=0.85, name="this reward model",
+                             showlegend=col == 1), 1, col)
+    fig.update_layout(height=340, barmode="overlay", margin=dict(l=10, r=10, t=50, b=10),
+                      legend=dict(orientation="h", y=-0.25))
+    fig.update_yaxes(range=[-3, 3])
+    return fig
+
+
+def training_animation(r: Dict, drift_step: Optional[int], every: int = 1) -> go.Figure:
+    """animate_training_comparison as a client-side Plotly animation (press ▶)."""
+    abs_s, rel_s, steps = r["abs_stats"], r["rel_stats"], len(r["abs_stats"])
+    from labs.relative_policies import group_relative_advantages
+
+    def frame(i: int):
+        abs_p, rel_p = r["abs_pol"][i], r["rel_pol"][i]
+        diff = [rel_p[a] - abs_p[a] for a in ACTIONS]
+        abs_adv = [ro.reward - abs_s[i]["baseline"] for ro in r["abs_rollouts"][i]]
+        rel_adv = group_relative_advantages(r["rel_rollouts"][i])
+        x = list(range(1, i + 2))
+        return [
+            go.Bar(x=ACTIONS, y=[abs_p[a] for a in ACTIONS], marker_color=ABS),
+            go.Bar(x=ACTIONS, y=[rel_p[a] for a in ACTIONS], marker_color=REL),
+            go.Bar(x=ACTIONS, y=diff, marker_color=[POS if d >= 0 else NEG for d in diff]),
+            go.Scatter(x=x, y=[s["avg_reward"] for s in abs_s[: i + 1]], line=dict(color=ABS, width=2)),
+            go.Scatter(x=x, y=[s["baseline"] for s in abs_s[: i + 1]], line=dict(color=BASE, dash="dash")),
+            go.Scatter(x=x, y=[s["avg_reward"] for s in rel_s[: i + 1]], line=dict(color=REL, width=2)),
+            go.Histogram(x=abs_adv, xbins=dict(start=-3, end=3, size=0.25), marker_color=ABS, opacity=0.55),
+            go.Histogram(x=rel_adv, xbins=dict(start=-3, end=3, size=0.25), marker_color=REL, opacity=0.55),
+        ]
+
+    fig = make_subplots(rows=2, cols=3, vertical_spacing=0.2, subplot_titles=(
+        "Absolute policy", "Relative policy", "Relative − absolute",
+        "Absolute: reward vs baseline", "Relative: average reward", "Advantages this step"))
+    cells = [(1, 1), (1, 2), (1, 3), (2, 1), (2, 1), (2, 2), (2, 3), (2, 3)]
+    for trace, (row, col) in zip(frame(0), cells):
+        fig.add_trace(trace, row, col)
+    fig.frames = [go.Frame(data=frame(i), name=str(i + 1), traces=list(range(8)))
+                  for i in range(0, steps, every)] + ([go.Frame(data=frame(steps - 1), name=str(steps), traces=list(range(8)))]
+                                                       if (steps - 1) % every else [])
+    if drift_step is not None:
+        for col in (1, 2):
+            fig.add_vline(x=drift_step, line=dict(color="gray", dash="dot", width=2), row=2, col=col)
+    for col in (1, 2):
+        fig.update_yaxes(range=[0, 1.02], row=1, col=col)
+        fig.update_xaxes(range=[0, steps + 1], row=2, col=col)
+        fig.update_yaxes(range=[-1.05, 1.05], row=2, col=col)
+    fig.update_yaxes(range=[-1.02, 1.02], row=1, col=3)
+    fig.update_xaxes(range=[-3, 3], row=2, col=3)
+    fig.update_layout(
+        height=620, showlegend=False, barmode="overlay", margin=dict(l=10, r=10, t=50, b=80),
+        updatemenus=[dict(type="buttons", direction="left", x=0, y=-0.08, xanchor="left", yanchor="top", buttons=[
+            dict(label="▶ Play training", method="animate",
+                 args=[None, dict(frame=dict(duration=120, redraw=True), fromcurrent=True, transition=dict(duration=0))]),
+            dict(label="❚❚", method="animate", args=[[None], dict(mode="immediate", frame=dict(duration=0, redraw=False))]),
+        ])],
+        sliders=[dict(x=0.2, y=-0.08, len=0.8, xanchor="left", yanchor="top", currentvalue=dict(prefix="step "),
+                      steps=[dict(method="animate", label=f.name,
+                                  args=[[f.name], dict(mode="immediate", frame=dict(duration=0, redraw=True))])
+                             for f in fig.frames])],
+    )
     return fig
