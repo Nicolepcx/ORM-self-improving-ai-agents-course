@@ -103,10 +103,10 @@ with tab_train:
             seed = st.number_input("Seed", 0, 9999, NB["seed"])
         submitted = st.form_submit_button("Train both methods", type="primary", icon=":material/play_arrow:")
     if submitted:
-        st.session_state.rp_settings = {**NB, "reward_noise": reward_noise, "drift": drift,
+        st.session_state.rp_active_settings = {**NB, "reward_noise": reward_noise, "drift": drift,
                                         "noise_shift_step": shift_step, "group_size": group_size, "lr": lr,
                                         "temperature": temperature, "seed": int(seed)}
-    settings = st.session_state.get("rp_settings", NB)
+    settings = st.session_state.get("rp_active_settings", NB)
     is_notebook = settings == NB
     result = run(settings_key(settings))
     st.session_state.rp_result_settings = settings
