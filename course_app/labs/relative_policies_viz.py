@@ -9,9 +9,7 @@ from plotly.subplots import make_subplots as _make_subplots
 
 
 def make_subplots(*args, **kwargs):
-    fig = _make_subplots(*args, **kwargs)
-    fig.update_annotations(font_size=12)
-    return fig
+    return _make_subplots(*args, **kwargs)
 
 from labs.relative_policies import ACTIONS
 
@@ -19,6 +17,14 @@ ABS = "#2f7de1"   # notebook: blue
 REL = "#f28e2b"   # notebook: orange
 BASE = "#d64545"  # notebook: red dashed
 POS, NEG = "#1fa37a", "#d64545"
+
+
+def _style(fig: go.Figure) -> go.Figure:
+    """Presentation-size fonts: these charts are shown on a projector in the demo."""
+    fig.update_layout(font=dict(size=15))
+    fig.update_annotations(font_size=17)
+    fig.update_traces(textfont_size=14, selector=dict(type="bar"))
+    return fig
 
 
 def _drift(fig, drift_step: Optional[int], rows_cols):
@@ -71,7 +77,7 @@ def training_summary(abs_stats, rel_stats, abs_pol, rel_pol, drift_step: Optiona
     fig.update_xaxes(title_text="training step", row=2, col=1)
     fig.update_layout(height=640, barmode="group", margin=dict(l=10, r=10, t=50, b=10),
                       legend=dict(orientation="h", y=-0.08))
-    return fig
+    return _style(fig)
 
 
 def policy_at_step(abs_p: Dict[str, float], rel_p: Dict[str, float], step: int) -> go.Figure:
@@ -86,7 +92,7 @@ def policy_at_step(abs_p: Dict[str, float], rel_p: Dict[str, float], step: int) 
     fig.update_yaxes(range=[0, 1.02], row=1, col=2)
     fig.update_yaxes(range=[-1.02, 1.02], row=1, col=3)
     fig.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10))
-    return fig
+    return _style(fig)
 
 
 def step_details(step_idx: int, abs_rollouts, abs_stats, rel_rollouts, rel_advantages: List[float]) -> go.Figure:
@@ -133,7 +139,7 @@ def step_details(step_idx: int, abs_rollouts, abs_stats, rel_rollouts, rel_advan
     fig.update_yaxes(title_text="advantage", row=1, col=3)
     fig.update_xaxes(range=[-3.5, 3.5], row=2, col=2)
     fig.update_layout(height=620, showlegend=False, barmode="group", margin=dict(l=10, r=10, t=50, b=10))
-    return fig
+    return _style(fig)
 
 
 def noise_map_figure(prompts, before: Dict, after: Optional[Dict]) -> go.Figure:
@@ -152,7 +158,7 @@ def noise_map_figure(prompts, before: Dict, after: Optional[Dict]) -> go.Figure:
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=520, barmode="group", margin=dict(l=10, r=10, t=40, b=10),
                       legend=dict(orientation="h", y=-0.06))
-    return fig
+    return _style(fig)
 
 
 # ------------------------------------------------------------------ explainers
@@ -163,7 +169,7 @@ def policy_before_after(before: Dict[str, float], after: Dict[str, float], title
     fig.add_trace(go.Bar(x=ACTIONS, y=[after[a] for a in ACTIONS], name="after", marker_color="#7c5cd6"))
     fig.update_layout(title=dict(text=title, font_size=13), height=290, barmode="group", yaxis=dict(range=[0, 1.02]),
                       margin=dict(l=10, r=10, t=40, b=10), legend=dict(orientation="h", y=1.12, x=1, xanchor="right"))
-    return fig
+    return _style(fig)
 
 
 def signal_bars(labels: List[str], values: List[float], title: str, y_title: str, y_range=None,
@@ -178,7 +184,7 @@ def signal_bars(labels: List[str], values: List[float], title: str, y_title: str
                       margin=dict(l=10, r=10, t=40, b=10), showlegend=False)
     if y_range:
         fig.update_yaxes(range=y_range)
-    return fig
+    return _style(fig)
 
 
 def compare_advantages(labels: List[str], absolute: List[float], relative: List[float],
@@ -193,7 +199,7 @@ def compare_advantages(labels: List[str], absolute: List[float], relative: List[
     fig.update_layout(height=340, barmode="overlay", margin=dict(l=10, r=10, t=50, b=10),
                       legend=dict(orientation="h", y=-0.25))
     fig.update_yaxes(range=[-3, 3])
-    return fig
+    return _style(fig)
 
 
 def training_animation(r: Dict, drift_step: Optional[int], every: int = 1) -> go.Figure:
@@ -248,7 +254,7 @@ def training_animation(r: Dict, drift_step: Optional[int], every: int = 1) -> go
                                   args=[[f.name], dict(mode="immediate", frame=dict(duration=0, redraw=True))])
                              for f in fig.frames])],
     )
-    return fig
+    return _style(fig)
 
 
 def rl_loop_svg() -> str:

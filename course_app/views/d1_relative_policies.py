@@ -11,15 +11,35 @@ from labs import relative_policies_viz as viz
 NB = rp.NOTEBOOK_SETTINGS
 ss = st.session_state
 
+# Presentation-size text for the demo (the hands-on pages keep the normal size).
+st.markdown(
+    """
+    <style>
+    .block-container { max-width: 1400px; }
+    [data-testid="stMarkdownContainer"] p, [data-testid="stMarkdownContainer"] li { font-size: 1.25rem; line-height: 1.55; }
+    [data-testid="stMarkdownContainer"] h1 { font-size: 2.9rem; }
+    [data-testid="stMarkdownContainer"] h3 { font-size: 2.0rem; }
+    [data-testid="stMarkdownContainer"] h4 { font-size: 1.65rem; }
+    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p { font-size: 1.08rem; }
+    [data-testid="stMetricValue"] { font-size: 2.5rem; }
+    [data-testid="stMetricLabel"] p { font-size: 1.1rem; }
+    button[data-baseweb="tab"] p { font-size: 1.2rem; font-weight: 600; }
+    [data-testid="stTable"] td, [data-testid="stTable"] th { font-size: 1.12rem; padding: 0.3rem 0.6rem; }
+    .stButton button p, [data-testid="stWidgetLabel"] p { font-size: 1.1rem; }
+    .lab-task, .lab-takeaway { font-size: 1.25rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 page_header(
     session=1,
     kind="DEMO",
-    title="Relative policies: learning from rankings, not scores",
+    title="A minimal RL loop: learning from relative feedback",
     subtitle=(
-        "A **minimal reinforcement learning loop**: a simple policy learns which strategy to use for arithmetic "
-        "questions, once from **absolute numeric feedback** and once from **relative feedback**. "
-        "The core idea: *relative feedback turns reward into within-prompt advantage, so learning is driven by "
-        "ranking rather than absolute scale.*"
+        "A simple policy learns which strategy to use for arithmetic questions. It is never told the right answer: "
+        "it only gets **scores** from a reward model, and learns from how each answer **compares with the others "
+        "for the same prompt**."
     ),
     minutes=10,
     notebook_path="demo/session_01_DEMO_relative_policies_RL.ipynb",
@@ -40,295 +60,204 @@ def how_to_read(markdown: str, title: str = "How to read this") -> None:
         st.markdown(markdown)
 
 
+def presenter(markdown: str) -> None:
+    with st.expander(":material/record_voice_over: Presenter notes"):
+        st.markdown(markdown)
+
+
+def advantage_table(rollouts, rewards, advantages):
+    df = pd.DataFrame([{
+        "action": ro.action,
+        "correct": "✓" if rp.is_correct_answer(ro.transcript, ro.correct_answer) else "✗",
+        "reward": r, "advantage": a} for ro, r, a in zip(rollouts, rewards, advantages)])
+    return df.style.map(lambda v: f"color: {'#1fa37a' if v > 0 else '#d64545'}; font-weight: 700",
+                        subset=["advantage"]).format({"reward": "{:+.2f}", "advantage": "{:+.2f}"})
+
+
 notebook_run = run(settings_key(NB))
 
-tabs = st.tabs(["① How RL works", "② Why advantages", "③ The reward model", "④ Train both",
-                "⑤ Step by step", "⑥ Inside one prompt group", "⑦ Why GRPO"])
+tabs = st.tabs(["1 · The loop", "2 · One learning step", "3 · Why relative?", "4 · Train it", "5 · Takeaways",
+                "Deep dive (after the session)"])
 
-# ======================================================================== ① how RL works
+# ======================================================================== scene 1 · the loop
 with tabs[0]:
-    st.markdown("#### Reinforcement learning: learning from scores, not from answers")
-    st.markdown(
-        "In supervised learning the model is shown the **correct answer**. In reinforcement learning it never is. "
-        "It **tries** something, gets a **score**, and shifts probability toward what scored **better than "
-        "expected**, away from what scored worse. Repeat thousands of times, and good behaviour emerges."
-    )
+    st.markdown("### The policy tries, the reward model scores, and relative feedback decides what to reinforce")
     st.image(viz.rl_loop_svg())
     c1, c2 = st.columns(2, gap="large")
     c1.markdown(
-        "**In this demo**\n"
+        "**The pieces from the presentation, in this demo**\n"
         "- **Prompt:** an arithmetic question, e.g. *What is 17 + 25?*\n"
-        "- **Actions:** six strategies: `use_tool`, `verify`, `plan`, `direct_answer`, `ramble`, `refuse`\n"
-        "- **Policy:** one logit per action, softmax → probabilities\n"
-        "- **Reward model:** +1 for a correct answer, small bonuses, a length penalty, −0.7 for refusing"
+        "- **Policy:** probabilities over 6 strategies: `use_tool`, `verify`, `plan`, `direct_answer`, `ramble`, `refuse`\n"
+        "- **Rollout / trajectory:** one sampled strategy and the transcript it produces\n"
+        "- **Reward:** a reward model's score: +1 if correct, small bonuses, a length penalty, −0.7 for refusing"
     )
     c2.markdown(
-        "**For an LLM agent**\n"
-        "- **Prompt:** the user's task plus the conversation so far\n"
-        "- **Actions:** the tokens and tool calls it generates\n"
-        "- **Policy:** the model's weights\n"
-        "- **Reward model:** a judge LLM, unit tests, a verifier… *and it can be biased*"
+        "**What makes it reinforcement learning**\n"
+        "- The policy is **never shown the correct strategy**.\n"
+        "- It samples a **group** of rollouts for the same prompt and gets a score for each.\n"
+        "- Rollouts that beat the rest of their group become more likely, the others less likely.\n"
+        "- Repeat, and the policy discovers which strategies work."
     )
-    with st.expander("How reliable is each action? (the agent does not know this)"):
-        st.dataframe(pd.DataFrame([
-            {"action": "use_tool", "what it does": "calls a calculator", "chance of a wrong answer": "2%"},
-            {"action": "verify", "what it does": "answers, then checks", "chance of a wrong answer": "3%"},
-            {"action": "plan", "what it does": "solves step by step", "chance of a wrong answer": "8%"},
-            {"action": "direct_answer", "what it does": "just answers", "chance of a wrong answer": "10%"},
-            {"action": "ramble", "what it does": "long-winded", "chance of a wrong answer": "35%"},
-            {"action": "refuse", "what it does": "won't answer", "chance of a wrong answer": "100%"},
-        ]), hide_index=True)
-
-    st.divider()
-    st.markdown("#### Run the loop: absolute vs relative, side by side")
-    st.markdown(
-        "Both learners run the notebook's functions on **one prompt**. They start from the same uniform policy and "
-        "draw the same random numbers, so **in step 1 they see exactly the same rollouts and rewards**. The only "
-        "difference is step 4: how the advantage is computed. After that, their policies (and so their rollouts) "
-        "start to diverge."
+    with st.expander("Question to all: if we removed the length penalty, would the model learn to ramble just to sound smarter?"):
+        st.caption("`length_penalty = 0.0009 * len(transcript)` in the reward model")
+        st.markdown(f"### {rp.reveal_answer()}")
+    presenter(
+        "- Map back to the presentation: **policy, rollouts, trajectories, rewards**. Here they are as small as possible.\n"
+        "- Emphasise: **no labels**. The only signal is a score, and the score comes from a reward model, "
+        "which is itself imperfect.\n"
+        "- Ask the length-penalty question now; reveal it before moving on (reward hacking)."
     )
 
-    def fresh_learner():
-        logits = {a: 0.0 for a in rp.ACTIONS}
-        return {"logits": logits, "baseline": 0.0, "history": [rp.softmax(logits)], "last": None}
+# ======================================================================== scene 2 · one learning step
+def fresh_learner():
+    logits = {a: 0.0 for a in rp.ACTIONS}
+    return {"logits": logits, "baseline": 0.0, "history": [rp.softmax(logits)], "last": None}
 
-    def reset_loop():
-        ss.rl_pair = {"step": 0, "abs": fresh_learner(), "rel": fresh_learner()}
 
-    if "rl_pair" not in ss:
-        reset_loop()
+def reset_loop():
+    ss.rl_pair = {"step": 0, "abs": fresh_learner(), "rel": fresh_learner()}
+
+
+if "rl_pair" not in ss:
+    reset_loop()
+
+
+def learn(learner, relative: bool, prompt_id: int, noise, seed: int, step: int):
+    rng = random.Random(seed)
+    rollouts = rp.generate_rollouts_for_prompts([rp.PROMPTS[prompt_id]], learner["logits"], NB["group_size"],
+                                                NB["temperature"], step, rng, noise, NB["noise_std"])
+    rewards = [ro.reward for ro in rollouts]
+    if relative:
+        advantages = rp.compute_group_advantages(rewards)
+    else:
+        learner["baseline"] = 0.95 * learner["baseline"] + 0.05 * (sum(rewards) / len(rewards))
+        advantages = [r - learner["baseline"] for r in rewards]
+    before = rp.softmax(learner["logits"])
+    delta = {a: 0.0 for a in rp.ACTIONS}
+    for ro, adv in zip(rollouts, advantages):
+        learner["logits"][ro.action] += NB["lr"] * adv
+        delta[ro.action] += NB["lr"] * adv
+    after = rp.softmax(learner["logits"])
+    learner["history"].append(after)
+    learner["last"] = dict(rollouts=rollouts, rewards=rewards, advantages=advantages, before=before,
+                           after=after, delta=delta, baseline=learner["baseline"])
+
+
+def one_step():
+    """One step for both learners, on the same random numbers (same rollouts while their policies agree)."""
+    pair = ss.rl_pair
+    pid = ss.get("rl_prompt", 0)
+    noise = notebook_run["noise_map"] if ss.get("rl_noise", True) else None
+    seed = 1000 + 7919 * pid + pair["step"]
+    learn(pair["abs"], False, pid, noise, seed, pair["step"])
+    learn(pair["rel"], True, pid, noise, seed, pair["step"])
+    pair["step"] += 1
+
+
+def step_buttons(where: str):
+    b1, b2, b3, _ = st.columns([1.3, 1.1, 1, 2])
+    b1.button("Run one learning step", type="primary", icon=":material/play_arrow:", on_click=one_step,
+              key=f"one_{where}")
+    b2.button("Run 10 steps", icon=":material/fast_forward:", on_click=lambda: [one_step() for _ in range(10)],
+              key=f"ten_{where}")
+    b3.button("Start over", icon=":material/restart_alt:", on_click=reset_loop, key=f"reset_{where}")
+
+
+with tabs[1]:
+    st.markdown("### One learning step: try a group, score it, reinforce what beat the group")
     c1, c2 = st.columns([2, 1])
     prompt_id = c1.selectbox("Prompt", [p[0] for p in rp.PROMPTS], format_func=lambda pid: rp.PROMPTS[pid][1],
                              key="rl_prompt", on_change=reset_loop)
-    miscalibrated = c2.toggle("Miscalibrated reward model", value=True, key="rl_noise", on_change=reset_loop,
-                              help="Uses the notebook's noise map: this prompt's rewards are scaled and shifted.")
-    noise = notebook_run["noise_map"] if miscalibrated else None
-    if noise:
-        scale, bias = noise[prompt_id]
-        st.caption(f"This prompt's reward model: scale **{scale:.2f}**, bias **{bias:+.2f}** "
-                   "(observed = clip(scale × raw + bias + noise)).")
-
-    def learn(learner, relative: bool, seed: int, step: int):
-        rng = random.Random(seed)
-        rollouts = rp.generate_rollouts_for_prompts([rp.PROMPTS[prompt_id]], learner["logits"], NB["group_size"],
-                                                    NB["temperature"], step, rng, noise, NB["noise_std"])
-        rewards = [ro.reward for ro in rollouts]
-        if relative:
-            advantages = rp.compute_group_advantages(rewards)
-        else:
-            learner["baseline"] = 0.95 * learner["baseline"] + 0.05 * (sum(rewards) / len(rewards))
-            advantages = [r - learner["baseline"] for r in rewards]
-        before = rp.softmax(learner["logits"])
-        delta = {a: 0.0 for a in rp.ACTIONS}
-        for ro, adv in zip(rollouts, advantages):
-            learner["logits"][ro.action] += NB["lr"] * adv
-            delta[ro.action] += NB["lr"] * adv
-        after = rp.softmax(learner["logits"])
-        learner["history"].append(after)
-        learner["last"] = dict(rollouts=rollouts, rewards=rewards, advantages=advantages, before=before,
-                               after=after, delta=delta, baseline=learner["baseline"])
-
-    def one_step():
-        pair = ss.rl_pair
-        seed = 1000 + 7919 * prompt_id + pair["step"]
-        learn(pair["abs"], False, seed, pair["step"])
-        learn(pair["rel"], True, seed, pair["step"])
-        pair["step"] += 1
-
-    b1, b2, b3, _ = st.columns([1.2, 1, 1, 2])
-    if b1.button("Run one training step", type="primary", icon=":material/play_arrow:"):
-        one_step()
-    if b2.button("Run 10 steps", icon=":material/fast_forward:"):
-        for _ in range(10):
-            one_step()
-    b3.button("Start over", icon=":material/restart_alt:", on_click=reset_loop)
+    c2.toggle("Miscalibrated reward model", value=True, key="rl_noise", on_change=reset_loop,
+              help="The notebook's noise map: this prompt's rewards are scaled and shifted, like a biased judge.")
+    step_buttons("s2")
 
     pair = ss.rl_pair
     if pair["step"] == 0:
-        st.info("Press **Run one training step**. Both policies start uniform: every action has probability 1/6.",
+        st.info("Press **Run one learning step**. The policy starts uniform: every strategy has probability 1/6.",
                 icon=":material/touch_app:")
     else:
-        st.markdown(f"**Training step {pair['step']}** · *{rp.PROMPTS[prompt_id][1]}* "
+        last = pair["rel"]["last"]
+        rollouts, rewards, advs = last["rollouts"], last["rewards"], last["advantages"]
+        mean = sum(rewards) / len(rewards)
+        std = math.sqrt(sum((r - mean) ** 2 for r in rewards) / len(rewards))
+        best = max(range(len(rewards)), key=rewards.__getitem__)
+        worst = min(range(len(rewards)), key=rewards.__getitem__)
+        st.markdown(f"**Learning step {pair['step']}** · *{rp.PROMPTS[prompt_id][1]}* "
                     f"(correct answer {rp.PROMPTS[prompt_id][2]})")
-        same = [ro.action for ro in pair["abs"]["last"]["rollouts"]] == [ro.action for ro in pair["rel"]["last"]["rollouts"]]
+        left, right = st.columns([1, 1.15], gap="large")
+        with left:
+            st.markdown("**① The policy samples a group of 12 rollouts**")
+            st.plotly_chart(viz.signal_bars(rp.ACTIONS, [last["before"][a] for a in rp.ACTIONS], "Policy before",
+                                            "probability", y_range=[0, 1.1], colors=["#7c5cd6"] * 6,
+                                            text_format="{:.2f}"), config={"displayModeBar": False}, key="s2_before")
+            with st.expander(f"A trajectory: rollout {best + 1} (`{rollouts[best].action}`)"):
+                st.code(rollouts[best].transcript, language="text")
+        with right:
+            st.markdown("**② Reward model scores each one → ③ relative advantage**")
+            st.table(advantage_table(rollouts, rewards, advs))
+        st.markdown(
+            f"**③ Relative advantage = how much better than the rest of the group:** group mean **{mean:.2f}**, "
+            f"std **{std:.2f}**.  \n"
+            f"Best · `{rollouts[best].action}`: ({rewards[best]:+.2f} − {mean:.2f}) / {std:.2f} = **{advs[best]:+.2f}** · "
+            f"Worst · `{rollouts[worst].action}`: ({rewards[worst]:+.2f} − {mean:.2f}) / {std:.2f} = **{advs[worst]:+.2f}**"
+        )
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown("**④ Update: `logit += lr × advantage`**")
+            st.plotly_chart(viz.signal_bars(rp.ACTIONS, [last["delta"][a] for a in rp.ACTIONS], "",
+                                            "logit change"), config={"displayModeBar": False}, key="s2_delta")
+        with right:
+            st.markdown("**⑤ The new policy**")
+            st.plotly_chart(viz.policy_before_after(last["before"], last["after"], ""),
+                            config={"displayModeBar": False}, key="s2_after")
+        if pair["step"] >= 2:
+            st.markdown("**The policy over your learning steps**")
+            st.line_chart(pd.DataFrame(pair["rel"]["history"])[rp.ACTIONS], height=280,
+                          x_label="learning step", y_label="probability")
+    presenter(
+        "- Run **one step** and walk through ① → ⑤ slowly: the group, the scores, the formula with the real "
+        "numbers, the update, the new policy.\n"
+        "- Point at a **trajectory**: that's the full transcript of one rollout.\n"
+        "- Then **Run 10 steps**: probability flows to the reliable strategies (`use_tool`, `verify`) without ever "
+        "being told they're reliable.\n"
+        "- Transition: *why compare with the group instead of just using the score?* → scene 3."
+    )
+
+# ======================================================================== scene 3 · why relative
+with tabs[2]:
+    st.markdown("### Why relative? Compare apples to apples")
+    st.markdown("**The same learning step, through absolute feedback.** Same rollouts, same rewards. "
+                "Only the reference for “expected” differs.")
+    pair = ss.rl_pair
+    if pair["step"] == 0:
+        st.info("Run a learning step in scene 2 first, or here:", icon=":material/touch_app:")
+        step_buttons("s3")
+    else:
         cols = st.columns(2, gap="large")
-        for col, key, title in [(cols[0], "abs", "Absolute (reward − baseline)"), (cols[1], "rel", "Relative (GRPO)")]:
+        for col, key, title in [(cols[0], "abs", "Absolute: reward − one running baseline"),
+                                (cols[1], "rel", "Relative (GRPO): compared with the group")]:
             last = pair[key]["last"]
-            rewards, advs = last["rewards"], last["advantages"]
+            rewards = last["rewards"]
             mean = sum(rewards) / len(rewards)
             std = math.sqrt(sum((r - mean) ** 2 for r in rewards) / len(rewards))
             with col:
                 st.markdown(f"**{title}**")
-                if key == "abs":
-                    st.caption(f"A = reward − {last['baseline']:.3f}  (running average of past rewards)")
-                else:
-                    st.caption(f"A = (reward − {mean:.3f}) / {std:.3f}  (this group's mean and std)")
-                st.dataframe(pd.DataFrame([{
-                    "action": ro.action,
-                    "correct": "✓" if rp.is_correct_answer(ro.transcript, ro.correct_answer) else "✗",
-                    "reward": round(r, 3), "advantage": round(a, 3)} for ro, r, a in zip(last["rollouts"], rewards, advs)
-                ]).style.map(lambda v: f"color: {'#1fa37a' if v > 0 else '#d64545'}; font-weight: 600",
-                             subset=["advantage"]).format(precision=3), hide_index=True, height=250)
-                st.plotly_chart(viz.signal_bars(rp.ACTIONS, [last["delta"][a] for a in rp.ACTIONS],
-                                                "④ Update: change of each action's logit", "logit change"),
-                                config={"displayModeBar": False}, key=f"rl_delta_{key}")
-                st.plotly_chart(viz.policy_before_after(last["before"], last["after"], "⑤ Policy before → after"),
-                                config={"displayModeBar": False}, key=f"rl_after_{key}")
+                st.caption(f"A = reward − {last['baseline']:.2f}" if key == "abs"
+                           else f"A = (reward − {mean:.2f}) / {std:.2f}")
+                st.table(advantage_table(last["rollouts"], rewards, last["advantages"]))
         abs_last, rel_last = pair["abs"]["last"], pair["rel"]["last"]
-        correct = [rp.is_correct_answer(ro.transcript, ro.correct_answer) for ro in abs_last["rollouts"]]
-        if same:
-            wrong_up = [sum(1 for ok, a in zip(correct, last["advantages"]) if a > 0 and not ok) for last in (abs_last, rel_last)]
-            right_down = [sum(1 for ok, a in zip(correct, last["advantages"]) if a < 0 and ok) for last in (abs_last, rel_last)]
+        if [ro.action for ro in abs_last["rollouts"]] == [ro.action for ro in rel_last["rollouts"]]:
             st.markdown(
-                f"**Same {len(correct)} rollouts, same rewards: only the advantage differs.** "
-                f"Absolute: {wrong_up[0]} wrong answer(s) pushed up, {right_down[0]} correct one(s) pushed down, "
-                f"average advantage **{sum(abs_last['advantages']) / len(correct):+.2f}**. "
-                f"Relative: {wrong_up[1]} wrong up, {right_down[1]} correct down, average advantage **0.00**."
+                f"Average advantage: absolute **{sum(abs_last['advantages']) / len(abs_last['advantages']):+.2f}**, "
+                "relative **+0.00**. The absolute baseline is one number averaged over *past* rewards, so it lags: "
+                "everything above it gets pushed up, whether it beat the other answers or not."
             )
         else:
-            st.caption("The policies have diverged, so each learner now samples its own rollouts.")
-        if pair["step"] >= 2:
-            hist = st.columns(2, gap="large")
-            for col, key in [(hist[0], "abs"), (hist[1], "rel")]:
-                col.line_chart(pd.DataFrame(pair[key]["history"])[rp.ACTIONS], height=220,
-                               x_label="training step", y_label="probability")
-        if pair["step"] <= 3:
-            st.caption("Early on the absolute baseline is still close to 0, so nearly every positive reward counts as "
-                       "“better than expected”. Run more steps and watch it catch up.")
-
-    code_panel("generate_rollouts_for_prompts", rp.generate_rollouts_for_prompts)
-    code_panel("compute_group_advantages", rp.compute_group_advantages)
+            st.caption("The two learners' policies have diverged, so each now samples its own rollouts.")
 
     st.divider()
-    st.markdown("#### Where does “expected” come from?")
-    st.markdown("Every method computes *advantage = reward − what we expected*. They differ in **where the expectation "
-                "comes from**, and that is the whole story of this demo:")
-    c1, c2, c3, c4 = st.columns(4, gap="medium")
-    with c1.container(border=True):
-        st.markdown("**Running baseline**")
-        st.caption("REINFORCE with a baseline · *the absolute method here*")
-        st.markdown("One number: an average of past rewards over **all** prompts. Easy and hard prompts, generous and "
-                    "strict scoring, all mixed: **apples vs oranges**.")
-    with c2.container(border=True):
-        st.markdown("**PPO: a critic**")
-        st.caption("value model V(s)")
-        st.markdown("A **second model**, about as large as the policy, trained to *predict* the expected reward for "
-                    "each prompt. Doubles memory and compute, and when the estimate is wrong, advantages point the "
-                    "wrong way.")
-    with c3.container(border=True):
-        st.markdown("**DPO: preference pairs**")
-        st.caption("offline, no reward model in training")
-        st.markdown("Relative too: **chosen vs rejected** answer to the same prompt. But the pairs are a **fixed "
-                    "dataset**: the model never explores its own new answers, and gets one comparison per pair.")
-    with c4.container(border=True):
-        st.markdown("**GRPO / GSPO: the group**")
-        st.caption("*the relative method here*")
-        st.markdown("Sample **G answers from the current policy** for the same prompt. The group's mean *is* the "
-                    "expected reward, **measured, not estimated**. Same prompt, same reward model: **apples to apples**.")
-
-# ======================================================================== ② why advantages
-with tabs[1]:
-    st.markdown("#### Rewards are environment outputs. Advantages are training inputs.")
-    st.markdown(
-        "The optimizer never updates the policy from rewards directly. It updates from **advantages**: "
-        "*how much better (or worse) than expected* a rollout was. That's where the name comes from: "
-        "the advantage of taking this action over what the policy usually achieves."
-    )
-    group = [ro for ro in notebook_run["abs_rollouts"][0] if ro.prompt_id == 0]
-    raw = [rp.score_rollout(ro.transcript, ro.correct_answer, ro.action) for ro in group]
-    labels = [f"#{i + 1} {ro.action}{' ✓' if rp.is_correct_answer(ro.transcript, ro.correct_answer) else ' ✗'}"
-              for i, ro in enumerate(group)]
-    st.markdown(f"Below is one real group from the notebook's first training step: {len(group)} rollouts for "
-                f"*{group[0].prompt}*, scored by the **well-calibrated** reward model (`score_rollout`).")
-
-    st.markdown("##### Part 1 · Absolute vs relative advantage, side by side")
-    st.markdown(
-        "Both methods turn the **same rewards** into advantages, they just compare against a different reference:\n"
-        "- **Absolute:** against a running **baseline**, an average of past rewards over *all* prompts.\n"
-        "- **Relative (GRPO/GSPO):** against the **other rollouts for the same prompt**: subtract the group mean, "
-        "divide by the group's standard deviation."
-    )
-    nb_baselines = {k: notebook_run["abs_stats"][k - 1]["baseline"] for k in (1, 21, NB["steps"])}
-    baseline = st.slider("Absolute baseline b", -0.5, 1.0, round(nb_baselines[1], 2), 0.01, key="adv_baseline")
-    st.caption(f"Starts at the baseline the absolute method actually had at this step in the notebook "
-               f"(**{nb_baselines[1]:.3f}**; it was {nb_baselines[21]:.3f} at step 21 and {nb_baselines[NB['steps']]:.3f} "
-               f"at step {NB['steps']}). Slide it to see how much the absolute signal depends on it.")
-    mean = sum(raw) / len(raw)
-    std = math.sqrt(sum((r - mean) ** 2 for r in raw) / len(raw))
-    abs_adv = [r - baseline for r in raw]
-    rel_adv = rp.compute_group_advantages(raw)
-    limit = max(abs(v) for v in abs_adv + rel_adv) * 1.25
-
-    def push(advantages):
-        totals = {a: 0.0 for a in rp.ACTIONS}
-        for ro, v in zip(group, advantages):
-            totals[ro.action] += NB["lr"] * v
-        return totals
-
-    abs_push, rel_push = push(abs_adv), push(rel_adv)
-    push_limit = max(abs(v) for v in list(abs_push.values()) + list(rel_push.values())) * 1.3
-    left, right = st.columns(2, gap="large")
-    with left:
-        st.markdown("**Absolute**")
-        st.caption(f"A = reward − {baseline:.3f}")
-        st.plotly_chart(viz.signal_bars(labels, abs_adv, "Advantage per rollout", "advantage", zero_line=0,
-                                        y_range=[-limit, limit]), config={"displayModeBar": False}, key="adv_abs")
-        st.plotly_chart(viz.signal_bars(rp.ACTIONS, [abs_push[a] for a in rp.ACTIONS], "Push per action",
-                                        "logit change", y_range=[-push_limit, push_limit]),
-                        config={"displayModeBar": False}, key="adv_abs_push")
-    with right:
-        st.markdown("**Relative (GRPO)**")
-        st.caption(f"A = (reward − {mean:.3f}) / {std:.3f}")
-        st.plotly_chart(viz.signal_bars(labels, rel_adv, "Advantage per rollout", "advantage", zero_line=0,
-                                        y_range=[-limit, limit]), config={"displayModeBar": False}, key="adv_rel")
-        st.plotly_chart(viz.signal_bars(rp.ACTIONS, [rel_push[a] for a in rp.ACTIONS], "Push per action",
-                                        "logit change", y_range=[-push_limit, push_limit]),
-                        config={"displayModeBar": False}, key="adv_rel_push")
-
-    correct = [rp.is_correct_answer(ro.transcript, ro.correct_answer) for ro in group]
-    st.dataframe(pd.DataFrame([{
-        "#": i + 1, "action": ro.action, "correct": "✓" if ok else "✗", "reward": round(r, 3),
-        "absolute A": round(a, 3), "relative A": round(g, 3),
-        "same direction": "yes" if (a > 0) == (g > 0) else "no"}
-        for i, (ro, ok, r, a, g) in enumerate(zip(group, correct, raw, abs_adv, rel_adv))]), hide_index=True)
-
-    abs_mean = sum(abs_adv) / len(abs_adv)
-    wrong_up_abs = sum(1 for ok, a in zip(correct, abs_adv) if a > 0 and not ok)
-    wrong_up_rel = sum(1 for ok, g in zip(correct, rel_adv) if g > 0 and not ok)
-    disagree = sum(1 for a, g in zip(abs_adv, rel_adv) if (a > 0) != (g > 0))
-    st.markdown(
-        f"- **Centre:** the absolute advantages average **{abs_mean:+.3f}**, the relative ones **0.000**. "
-        "An absolute signal with a non-zero mean pushes *everything* in the group up (or down) a bit, on top of the "
-        "useful part.\n"
-        f"- **Direction:** {disagree} of {len(group)} rollouts get a different sign. Wrong answers pushed up: "
-        f"absolute **{wrong_up_abs}**, relative **{wrong_up_rel}**.\n"
-        f"- **Scale:** relative advantages always have std 1 within the group, whatever the rewards; the absolute "
-        f"ones have the rewards' own spread ({std:.3f}). Move the baseline: only the absolute side changes."
-    )
-    with st.expander("Why not update with the raw reward directly?"):
-        positive = sum(r > 0 for r in raw)
-        generous_push = push([max(-1.0, min(1.0, r + 0.4)) for r in raw])
-        generous_up = [a for a in rp.ACTIONS if generous_push[a] > 1e-9]
-        st.markdown(
-            f"A raw reward has no sense of *better than what*. Here {positive} of {len(raw)} rewards are positive, "
-            "so it happens to point roughly the right way, only because this reward model is centred near zero. "
-            f"Give the same answers a generous reward model (+0.4 on every score): then {len(generous_up)} of "
-            f"{len(rp.ACTIONS)} actions get pushed up ({', '.join(generous_up)}), including ones that only produced "
-            "wrong answers. That is what a baseline, and better still the group, fixes."
-        )
-    with st.expander("Is this exactly how GRPO and GSPO compute it?"):
-        st.markdown(
-            "Yes, up to one detail. GRPO (DeepSeekMath) and GSPO (Qwen) both use the group-normalized advantage "
-            "*(reward − group mean) / group std*, which statistically is a z-score within the group. "
-            "GSPO changes the importance ratio and clipping to the sequence level, not the advantage. The detail: "
-            "the notebook divides by the **population** std (and uses 1 when all rewards are equal); typical "
-            "GRPO implementations use the **sample** std plus a small ε. That rescales the advantages slightly but "
-            "never changes their sign or ranking. Some variants drop the std division altogether "
-            "(e.g. Dr. GRPO), keeping only *reward − group mean*."
-        )
-
-    st.divider()
-    st.markdown("##### Part 2 · Apples to apples: why compare within the group?")
+    st.markdown("#### The real problem: the reward model scores prompts differently")
     st.markdown(
         "A reward model doesn't score every prompt the same way. In the notebook's noise map, one prompt is scored "
         "**strictly**, another **generously**. Absolute advantages compare all answers with **one global baseline**: "
@@ -400,89 +329,20 @@ with tabs[1]:
                "teaches the policy the reward model's quirks.")
 
     st.divider()
-    st.markdown("##### Part 3 · The math: miscalibrate one prompt's reward model")
-    st.markdown(
-        "Real reward models are biased: one prompt type gets generous scores, another strict ones. "
-        "Change how *this prompt* is scored and compare both advantages with the calibrated ones (outlined):"
+    st.markdown("#### That's exactly what GRPO / GSPO do")
+    st.latex(r"A_i=\frac{r(x, y_i)-\operatorname{mean}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}"
+             r"{\operatorname{std}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}")
+    st.markdown("Sample **G answers to the same prompt x**, score them, and compare each with its own group. "
+                "No critic model to estimate “expected”: the group *measures* it.")
+    presenter(
+        "- Top: **same rollouts, different advantages**. The absolute baseline lags and is shared by all prompts.\n"
+        "- Middle, the key message: a reward model is **biased per prompt**. One global baseline compares answers "
+        "across prompts scored with different biases (**apples vs oranges**); the group compares answers to the "
+        "same prompt under the same bias (**apples to apples**). Push the bias sliders apart.\n"
+        "- Bottom: this is **GRPO's** advantage. PPO would need a critic model to *estimate* the expected reward."
     )
-    c1, c2 = st.columns(2)
-    scale = c1.slider("Scale (multiplies the reward)", 0.3, 1.7, 1.0, 0.05, key="adv_scale")
-    bias = c2.slider("Bias (added to the reward)", -0.4, 0.4, 0.0, 0.05, key="adv_bias")
-    observed = [max(-1.0, min(1.0, scale * r + bias)) for r in raw]
-    expected = sum(raw) / len(raw)  # the baseline a calibrated run would have learned
-    abs_now, abs_ref = [o - expected for o in observed], [r - expected for r in raw]
-    rel_now, rel_ref = rp.compute_group_advantages(observed), rp.compute_group_advantages(raw)
-    st.plotly_chart(viz.compare_advantages(labels, abs_now, rel_now, abs_ref, rel_ref),
-                    config={"displayModeBar": False}, key="adv_compare")
-    clipped = sum(1 for r in raw if abs(scale * r + bias) > 1.0)
-    abs_change = max(abs(a - b) for a, b in zip(abs_now, abs_ref))
-    rel_change = max(abs(a - b) for a, b in zip(rel_now, rel_ref))
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Absolute: largest change of an advantage", f"{abs_change:.2f}")
-    m2.metric("Relative: largest change of an advantage", f"{rel_change:.2f}")
-    m3.metric("Rewards clipped at ±1", f"{clipped} of {len(raw)}")
-    st.markdown("Why the relative advantages don't move: for any scale *s* > 0 and bias *b*, the group normalization cancels both:")
-    st.latex(r"\frac{(s\,r_i + b) - \operatorname{mean}(s\,r + b)}{\operatorname{std}(s\,r + b)}"
-             r"= \frac{s\,(r_i - \bar r)}{s\,\sigma_r} = \frac{r_i - \bar r}{\sigma_r}")
-    if scale == 1.0 and bias == 0.0:
-        st.info("Move the sliders. Try scale 0.6 with bias −0.3 (a strict reward model), then scale 1.6 with bias +0.3.",
-                icon=":material/tune:")
-    elif clipped == 0:
-        st.success(f"The absolute advantages moved by up to **{abs_change:.2f}**, the relative ones by "
-                   f"**{rel_change:.2f}**. The absolute signal shifts with every bias and stretches with every scale, "
-                   "so the policy would learn the reward model's quirks instead of which answers are better.",
-                   icon=":material/check_circle:")
-    else:
-        st.warning(f"**{clipped} of {len(raw)} rewards hit the ±1 limit** and become identical, so the ranking among "
-                   "them is lost, and now the relative advantages change too. That's **reward saturation**: when a "
-                   "reward model can't tell good answers apart any more, no advantage construction can. It's also why "
-                   "rewards saturating near the cap late in training weakens the signal.",
-                   icon=":material/compress:")
-    takeaway("<b>“Which is better?” is easier to answer reliably than “how good is this?”.</b> Relative advantages "
-             "only need the ranking inside a group, so they survive reward models that are miscalibrated per prompt.")
 
-# ======================================================================== ③ reward model
-with tabs[2]:
-    left, right = st.columns([1, 1], gap="large")
-    with left:
-        st.markdown("#### The reward model")
-        st.markdown(
-            "- **+1** if the final answer is correct (the most important signal)\n"
-            "- a **length penalty** of 0.0009 per character (discourages verbosity)\n"
-            "- small **shaping bonuses**: tool use +0.06, verification +0.04, planning +0.02\n"
-            "- **−0.7** for refusing\n\n"
-            "Clipped to [−1, 1]."
-        )
-    with right:
-        code_panel("score_rollout (the reward model)", rp.score_rollout)
-        code_panel("render_transcript (what each action writes)", rp.render_transcript)
-
-    st.markdown("##### Question to all")
-    st.markdown("**If we removed the length penalty, would the model learn to ramble just to sound smarter?**")
-    st.caption("`length_penalty = 0.0009 * len(transcript)`")
-    with st.expander("Reveal the answer"):
-        st.markdown(f"### {rp.reveal_answer()}")
-
-    st.divider()
-    st.markdown("#### The noise map: a miscalibrated reward model")
-    st.markdown(
-        "In the real world a reward model is just another LLM, and it's biased: it might give higher scores to "
-        "specific topics or formats simply because of its own training data. The demo simulates that with a "
-        "per-prompt **scale** and **bias**, plus a little per-rollout noise:\n\n"
-        "`observed = clip(scale × raw + bias + noise)`\n\n"
-        "- **Absolute baseline's failure:** if a prompt sits in a *high-bias* zone, the agent over-rewards whatever "
-        "it does on that prompt, regardless of quality.\n"
-        "- **Relative feedback's success:** normalizing within the prompt group subtracts the bias and divides out "
-        "the scale (see ② Why advantages).\n\n"
-        f"At step **{NB['noise_shift_step']}** the reward model **drifts**: every prompt gets a new, wider scale and bias, "
-        "like a reward model update or a data-mix change in the middle of training."
-    )
-    st.plotly_chart(viz.noise_map_figure(rp.PROMPTS, notebook_run["noise_map"],
-                                         notebook_run["abs_maps"][NB["noise_shift_step"]]),
-                    config={"displayModeBar": False})
-    code_panel("create_reward_noise_map and apply_reward_noise", [rp.create_reward_noise_map, rp.apply_reward_noise])
-
-# ======================================================================== ④ train both
+# ======================================================================== scene 4 · train it
 WIDGETS = {"rp_noise": NB["reward_noise"], "rp_drift": NB["drift"], "rp_shift": NB["noise_shift_step"],
            "rp_group": NB["group_size"], "rp_lr": NB["lr"], "rp_temp": NB["temperature"], "rp_seed": NB["seed"]}
 
@@ -493,14 +353,11 @@ def reset_to_notebook():
 
 
 with tabs[3]:
-    st.markdown(
-        f"Both methods train for **{NB['steps']} steps** on all {len(rp.PROMPTS)} prompts, "
-        f"{NB['group_size']} rollouts per prompt per step, with the same miscalibrated reward model and the drift at "
-        f"step {NB['noise_shift_step']}. Change a setting and both methods retrain immediately."
-    )
+    st.markdown("### Train it: both feedback types, all prompts, 80 steps")
+    st.markdown(f"All {len(rp.PROMPTS)} prompts, {NB['group_size']} rollouts each per step, the same miscalibrated reward model, and at step {NB['noise_shift_step']} the reward model **drifts** (like a judge update mid-training).")
     for key, value in WIDGETS.items():
         ss.setdefault(key, value)
-    with st.container(border=True):
+    with st.expander(":material/tune: Change the setup (notebook settings by default)"):
         c1, c2, c3, c4 = st.columns(4, gap="medium")
         noise_on = c1.toggle("Miscalibrated reward model", key="rp_noise")
         drift_on = c1.toggle("Drift mid-training", key="rp_drift", disabled=not noise_on)
@@ -540,7 +397,7 @@ with tabs[3]:
     st.caption(f"Run: **{history[-1]['label']}**" + (f" · previous: {previous['label']}" if previous else ""))
 
     drift_step = shift if (noise_on and drift_on) else None
-    st.markdown("##### Watch the training")
+    st.markdown("#### ▶ Press play and watch both policies learn")
     st.plotly_chart(viz.training_animation(result, drift_step, every=2), config={"displayModeBar": False},
                     key=f"anim_{settings_key(settings)}")
     how_to_read(
@@ -558,232 +415,468 @@ with tabs[3]:
         "the policy.** Even when rewards look similar, the learned behaviour can diverge."
     )
 
-    st.markdown("##### The whole run at a glance")
-    st.plotly_chart(viz.training_summary(abs_s, rel_s, result["abs_pol"], result["rel_pol"], drift_step,
-                                         previous=previous), config={"displayModeBar": False})
-    how_to_read(
-        "This figure deliberately mixes **reward-model outputs**, **ground truth** and **optimization signals**, to "
-        "show where they align and where they don't.\n\n"
-        "- **Average reward (top left):** what the reward model says, with the absolute method's baseline (red dashed) "
-        "and the drift point. It is *not* task performance and *not* the learning signal. Similar curves don't imply "
-        "similar learning.\n"
-        "- **True correctness (top right):** measured against the correct answer, **never used in training**. "
-        "The only question that ultimately matters: is the agent actually solving the task?\n"
-        "- **Advantages (bottom left), the most important panel:** mean (solid) and spread (dashed) of the signal "
-        "used for updates. Absolute: the mean drifts toward zero as the baseline adapts, and the spread changes with "
-        "the reward model. Relative: the mean is 0 by construction and the spread stays stable.\n"
-        "- **Final policy (bottom right):** the accumulated effect of every update. Similar reward curves but different "
-        "policies mean the methods learned different internal preferences.\n\n"
-        "**Reward-model outputs are context. Advantages are the learning signal. Policies change because of "
-        "advantages, not rewards.**"
+    presenter(
+        "- Press **▶ Play training** and narrate the top row: probability mass moving to one strategy per method.\n"
+        "- Bottom left: the absolute **baseline** (red) chasing the reward; at the drift line it has to re-adapt.\n"
+        "- Bottom right: the advantages the update uses. Relative stays centred and spread out; absolute narrows.\n"
+        "- Result: same task, same reward model, **different learned behaviour**, only because of how the advantage "
+        "is computed. (Seeds vary: the robust difference is the signal, see Deep dive → Training details.)"
     )
-    if len(history) > 1:
-        st.markdown("##### Your runs")
-        st.dataframe(pd.DataFrame([{
-            "run": h["label"],
-            "absolute correctness": f"{h['abs_stats'][-1]['correctness_rate']:.1%}",
-            "relative correctness": f"{h['rel_stats'][-1]['correctness_rate']:.1%}",
-            "absolute learned": h["abs_top"], "relative learned": h["rel_top"]} for h in history]), hide_index=True)
 
-    st.markdown("##### Experiments")
-    for question, answer in [
-        ("Switch the **miscalibrated reward model off**. Which method does better now?",
-         "Often the absolute method. Without per-prompt bias there is nothing for the group normalization to cancel, and dividing "
-         "by a small within-group spread can amplify tiny reward differences between equally good answers. Relative "
-         "feedback is about **robustness to a miscalibrated reward model**, not a free accuracy boost."),
-        ("Keep the notebook settings and change **only the seed** a few times. How stable is the gap?",
-         "The final correctness numbers move around from seed to seed; the gap in the notebook's run is on the large "
-         "side. What stays the same on every seed is the **advantage signal**: centred and well-scaled for the relative "
-         "method, shrinking for the absolute one (bottom left panel). Always compare RL methods across several seeds."),
-        ("Set the **group size to 2**. What happens to the relative method?",
-         "With two rollouts the group advantage is always ±1: it only says which of the two was better. Larger groups give a "
-         "more informative ranking, which is why GRPO samples many answers per prompt."),
-        ("Move the **drift** early (step 10) or late (step 70). Where do you see it?",
-         "In the reward curves and the absolute baseline, which has to re-adapt. The relative advantages keep their "
-         "centre and scale through the drift: the best answer in a group still wins."),
-    ]:
-        st.markdown(f"**{question}**")
-        with st.expander("Reveal"):
-            st.markdown(answer)
-
-    code_panel("train_absolute_baseline", rp.train_absolute_baseline,
-               "Advantage = reward − running baseline (exponential moving average across all prompts).")
-    code_panel("train_group_relative", [rp.train_group_relative, rp.group_relative_advantages],
-               "Advantage = (reward − group mean) / group std within each prompt group, as in GRPO. Same update for both: `logits[action] += lr * advantage`.")
-    st.caption("Policy update note: like the notebook, this uses a bandit-style shortcut (`logits += lr * advantage`) "
-               "instead of gradients of log-probabilities, to show the effect of the advantage construction clearly.")
-
-# shared by ⑤ and ⑥: whatever was last trained in ④
-current = run(settings_key(ss.get("rp_current", NB)))
-steps = len(current["abs_stats"])
-
-# ======================================================================== ⑤ step by step
+# ======================================================================== scene 5 · takeaways
 with tabs[4]:
-    st.markdown("A microscope on **one training step**: the exact objects the optimizer sees. "
-                "Uses the run from ④ Train both.")
-    k = st.slider("Training step", 1, steps, 1, key="rp_step")
-    i = k - 1
-    rel_adv = rp.group_relative_advantages(current["rel_rollouts"][i])
-    st.plotly_chart(viz.policy_at_step(current["abs_pol"][i], current["rel_pol"][i], k), config={"displayModeBar": False})
-    st.plotly_chart(viz.step_details(i, current["abs_rollouts"], current["abs_stats"], current["rel_rollouts"], rel_adv),
-                    config={"displayModeBar": False})
-    a, r = current["abs_stats"][i], current["rel_stats"][i]
+    st.markdown("### Takeaways")
     st.markdown(
-        f"**Step {k}:** absolute advantages have mean **{a['mean_adv']:+.3f}** and spread **{a['std_adv']:.3f}** "
-        f"(baseline {a['baseline']:.3f}). Relative advantages have mean **{r['mean_adv']:+.3f}** and spread "
-        f"**{r['std_adv']:.3f}**. Compare steps 1, 21, 41 and {steps}."
+        "1. **RL learns from scores, not answers.** Sample a group, score it, reinforce what beat the group.\n"
+        "2. **Advantages, not rewards, drive the update:** *how much better than expected* was this answer?\n"
+        "3. **Relative feedback compares apples to apples.** Answers to the same prompt share the reward model's "
+        "bias, so it cancels. That's why it holds up under a miscalibrated or drifting reward model."
     )
-    how_to_read(
-        "- **Sorted rewards (top left / middle):** each dot is one rollout. For the absolute method the dashed line is "
-        "the **global baseline**: dots above it get a positive advantage, below it a negative one, and the distance "
-        "sets the size. If the baseline is misplaced or drifts, the whole signal shifts. For the relative method the "
-        "dashed line is only the mean: what counts is the order *within each prompt group*.\n"
-        "- **Reward → advantage (top right):** absolute is a straight line (advantage = reward − baseline). "
-        "Relative is scattered: the same reward can get very different advantages, depending on what else was "
-        "sampled for that prompt.\n"
-        "- **Advantage distributions (bottom left / middle):** absolute has a mean that isn't zero and a scale tied to "
-        "the rewards. Relative is centred at 0 with a stable spread: a well-conditioned signal by construction.\n"
-        "- **Mean advantage by action (bottom right):** which behaviours are being reinforced or suppressed right now. "
-        "Actions with consistently positive advantage will dominate the policy.\n\n"
-        "| | early step | late step |\n|---|---|---|\n"
-        "| reward spread | large | saturated |\n| absolute advantage | wide | collapses toward 0 |\n"
-        "| relative advantage | centred, std ≈ 1 | still centred, still spread |\n"
-        "| learning pressure | both | mainly relative |\n\n"
-        "Late in training, absolute advantages vanish when rewards saturate and the baseline catches up: gradients die "
-        "and the policy freezes. Relative advantages keep ranking the rollouts, so learning pressure remains."
-    )
-    with st.expander("Sample rollouts at this step"):
-        c1, c2 = st.columns(2)
-        for col, name, ros, advs in [
-            (c1, "Absolute", current["abs_rollouts"][i], [ro.reward - a["baseline"] for ro in current["abs_rollouts"][i]]),
-            (c2, "Relative", current["rel_rollouts"][i], rel_adv),
-        ]:
-            col.markdown(f"**{name}**")
-            col.dataframe(pd.DataFrame([{"action": ro.action, "reward": round(ro.reward, 3), "advantage": round(ad, 3),
-                                         "prompt": ro.prompt} for ro, ad in list(zip(ros, advs))[:12]]), hide_index=True)
-
-# ======================================================================== ⑥ ranking table
-with tabs[5]:
-    st.markdown("Zoom into **one prompt group at one step**: *given several candidate rollouts for the same prompt, "
-                "which ones are reinforced, and why?*")
-    c1, c2 = st.columns([1, 2])
-    k = c1.select_slider("Step", options=list(range(1, steps + 1)), value=1, key="rp_rank_step")
-    prompt_id = c2.selectbox("Prompt", [p[0] for p in rp.PROMPTS], format_func=lambda pid: rp.PROMPTS[pid][1],
-                             key="rp_rank_prompt")
-    i = k - 1
-    noise = current["abs_maps"][i]
-    if noise:
-        scale, bias = noise[prompt_id]
-        st.caption(f"Reward noise for this prompt at this step: scale **{scale:.2f}**, bias **{bias:+.2f}**. "
-                   "*Raw* is reconstructed as (observed − bias) / scale, for teaching only.")
-
-    def ranking(rollouts, method):
-        group = [ro for ro in rollouts[i] if ro.prompt_id == prompt_id]
-        observed = [ro.reward for ro in group]
-        if method == "abs":
-            advantages = [o - current["abs_stats"][i]["baseline"] for o in observed]
-        else:
-            advantages = rp.compute_group_advantages(observed)
-        order = sorted(range(len(group)), key=lambda j: observed[j], reverse=True)
-        rows = []
-        for rank, j in enumerate(order, 1):
-            row = {"rank": rank, "action": group[j].action}
-            if noise:
-                row["raw"] = round((observed[j] - bias) / scale if scale > 0 else observed[j], 3)
-            row.update({"observed": round(observed[j], 3), "advantage": round(advantages[j], 3),
-                        "correct": "✓" if rp.is_correct_answer(group[j].transcript, group[j].correct_answer) else "✗"})
-            rows.append(row)
-        return pd.DataFrame(rows), sum(observed) / len(observed), advantages
-
-    left, right = st.columns(2, gap="large")
-    for col, method, title in [(left, "abs", "Absolute baseline"), (right, "rel", "Group relative")]:
-        table, mean_reward, advs = ranking(current[f"{method}_rollouts"], method)
-        with col:
-            st.markdown(f"**{title}**")
-            st.dataframe(table.style.map(lambda v: f"color: {'#1fa37a' if v > 0 else '#d64545'}; font-weight: 600",
-                                         subset=["advantage"]).format(precision=3), hide_index=True)
-            extra = f" · global baseline {current['abs_stats'][i]['baseline']:.3f}" if method == "abs" else ""
-            st.caption(f"group mean reward {mean_reward:.3f}{extra} · advantage mean {sum(advs) / len(advs):+.3f}, "
-                       f"std {pd.Series(advs).std(ddof=0):.3f}")
-    how_to_read(
-        "- **Rank** by observed reward · **raw** is the reward before noise (teaching only) · **observed** is what the "
-        "optimizer sees · **advantage** is the training signal · **correct** is ground truth, never used in training.\n"
-        "- **Absolute:** every rollout is compared with one **global** baseline. Early on the baseline is poorly "
-        "calibrated, so even mediocre rollouts get a large positive advantage, and a generously scored prompt can "
-        "reinforce wrong answers. Late in training, once rewards saturate near the cap, correct rollouts all get almost "
-        "the same advantage: no signal *among* good behaviours.\n"
-        "- **Relative:** rollouts are compared with the **other rollouts for the same prompt**. The best one always gets "
-        "a positive advantage and the worst a negative one, whatever the absolute reward; mean 0, std 1 by construction. "
-        "Even when every rollout picks the same action, the ranking still creates a learning signal.\n\n"
-        "*Learning depends on who wins, not by how much.* When debugging training, look at rankings, not reward curves: "
-        "**who is being reinforced, and why?**"
-    )
-
-# ======================================================================== ⑦ why GRPO
-with tabs[6]:
-    st.markdown("#### PPO vs GRPO")
-    st.markdown(
-        "PPO often struggles in complex agent training, which is why the field is moving toward **GRPO/GSPO** and "
-        "their variants. PPO's effectiveness hinges entirely on its **value estimate**:\n\n"
-        "- **Computational burden:** the value model (critic) is usually as large as the policy, doubling memory and "
-        "compute.\n"
-        "- **Scaling:** making a value model work for long responses and complex reasoning is very hard.\n"
-        "- **Noisy advantage estimates:** when the critic is wrong, updates move in the wrong direction, slowing or "
-        "even destroying learning, just like the absolute baseline whose advantages have arbitrary mean and scale."
-    )
-    st.markdown("#### How GRPO solves the absolute problem")
-    st.markdown("GRPO skips the value model. It samples a **group of G answers to the same query x** and uses the group "
-                "itself as a real-data baseline:")
-    st.latex(r"A_i=\frac{r(x, y_i)-\operatorname{mean}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}"
-             r"{\operatorname{std}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}")
-    st.markdown(
-        "- The advantage is **always centred around 0**: the group average is the baseline, so the signal is "
-        "comparative, not absolute.\n"
-        "- Dividing by the std keeps a **consistent scale (≈ 1)**, preventing the signal collapse seen in the absolute "
-        "baseline late in training.\n"
-        "- If the reward model **drifts**, the group mean moves with it. The best answer in the group still has the "
-        "highest relative score, even if its absolute value shifted."
-    )
-    st.link_button("Group Sequence Policy Optimization (paper)", "https://arxiv.org/pdf/2507.18071",
-                   icon=":material/description:")
-    st.divider()
-    st.markdown("#### PPO, DPO, GRPO: where the comparison comes from")
+    st.markdown("#### Where does “expected” come from?")
     st.markdown(
         "| | **PPO** | **DPO** | **GRPO / GSPO** |\n"
         "|---|---|---|---|\n"
-        "| **“Expected reward” comes from** | a learned critic V(s): an *estimate* | no explicit baseline: "
-        "chosen vs rejected answer | the mean of a group of sampled answers: *measured* |\n"
-        "| **Extra model during training** | critic, about as large as the policy | frozen reference model | "
-        "none besides the reward model or verifier |\n"
-        "| **Data** | online: the policy's own new answers | **offline**: a fixed preference dataset | "
-        "online: the policy's own new answers |\n"
-        "| **Comparisons per prompt** | one answer vs the critic's guess | one pair | a whole group (G answers) |\n"
-        "| **Reward-model bias per prompt** | the critic has to learn it, errors become noisy advantages | "
-        "no reward model in training | cancels inside the group: **apples to apples** |\n"
-        "| **In this demo** | ≈ the absolute method (one estimated baseline) | not simulated | the relative method |"
+        "| **Expected reward from** | a critic V(s): an *estimate* | chosen vs rejected answer | the group's mean: *measured* |\n"
+        "| **Extra model** | critic, about as large as the policy | frozen reference model | none |\n"
+        "| **Data** | online, own answers | **offline**, fixed preference pairs | online, own answers |\n"
+        "| **Comparisons per prompt** | answer vs the critic's guess | one pair | a whole group |\n"
+        "| **In this demo** | ≈ absolute (one estimated baseline) | not simulated | relative |"
     )
-    st.caption("DPO is relative as well (both answers belong to the same prompt), so the shift to GRPO isn't about "
-               "relative vs absolute. It's about learning **online** from the model's own fresh answers, with **many "
-               "comparisons per prompt** and rewards that can be **verified**, without paying for a critic.")
-    st.divider()
-    st.markdown("#### Key takeaways")
-    c1, c2 = st.columns(2, gap="large")
-    c1.markdown(
-        "**Absolute feedback (baseline method)**\n"
-        "- numeric rewards with a running baseline: `advantage = reward − baseline`\n"
-        "- the moving-average baseline reduces variance but can't handle per-prompt scale differences\n"
-        "- advantages can have any scale, depending on the reward distribution"
-    )
-    c2.markdown(
-        "**Relative feedback (group method)**\n"
-        "- absolute rewards first, then **normalized within each prompt group** (not DPO preference pairs)\n"
-        "- `advantage = (reward − group mean) / group std`: mean 0, std ≈ 1\n"
-        "- the best rollout in each group gets a positive advantage regardless of the reward scale"
-    )
-    st.markdown(
-        "**Why this matters for LLMs:** reward values aren't globally comparable (prompts differ in difficulty), "
-        "reward models can be miscalibrated per prompt type, and *“which is better?”* is easier to judge than "
-        "*“how good is this?”*."
-    )
+    st.caption("DPO is relative too (both answers belong to the same prompt). The shift to GRPO is about learning "
+               "online from the model's own fresh answers, with many comparisons per prompt and verifiable rewards, "
+               "without paying for a critic.")
+    st.link_button("Group Sequence Policy Optimization (paper)", "https://arxiv.org/pdf/2507.18071",
+                   icon=":material/description:")
     takeaway("<b>Relative feedback turns reward into within-prompt advantage, so learning is driven by ranking rather "
-             "than absolute scale.</b> What survives to the end of training is not reward, it is ranking information.")
+             "than absolute scale.</b>")
+    presenter("- Three takeaways, then the table: **where the expected reward comes from** is the whole difference "
+              "between PPO, DPO and GRPO.\n- Point attendees to the **Deep dive** tab and the notebook for after the session.")
+
+# ======================================================================== deep dive
+with tabs[5]:
+    st.markdown("Everything from the notebook in detail, for after the session.")
+    deep = st.tabs(["Advantages in detail", "Reward model & noise map", "Training details", "Step by step", "Inside one prompt group", "PPO vs GRPO"])
+    with deep[0]:
+        st.markdown("#### Rewards are environment outputs. Advantages are training inputs.")
+        st.markdown(
+            "The optimizer never updates the policy from rewards directly. It updates from **advantages**: "
+            "*how much better (or worse) than expected* a rollout was. That's where the name comes from: "
+            "the advantage of taking this action over what the policy usually achieves."
+        )
+        group = [ro for ro in notebook_run["abs_rollouts"][0] if ro.prompt_id == 0]
+        raw = [rp.score_rollout(ro.transcript, ro.correct_answer, ro.action) for ro in group]
+        labels = [f"#{i + 1} {ro.action}{' ✓' if rp.is_correct_answer(ro.transcript, ro.correct_answer) else ' ✗'}"
+                  for i, ro in enumerate(group)]
+        st.markdown(f"Below is one real group from the notebook's first training step: {len(group)} rollouts for "
+                    f"*{group[0].prompt}*, scored by the **well-calibrated** reward model (`score_rollout`).")
+
+        st.markdown("##### Absolute vs relative on one group")
+        st.markdown(
+            "Both methods turn the **same rewards** into advantages, they just compare against a different reference:\n"
+            "- **Absolute:** against a running **baseline**, an average of past rewards over *all* prompts.\n"
+            "- **Relative (GRPO/GSPO):** against the **other rollouts for the same prompt**: subtract the group mean, "
+            "divide by the group's standard deviation."
+        )
+        nb_baselines = {k: notebook_run["abs_stats"][k - 1]["baseline"] for k in (1, 21, NB["steps"])}
+        baseline = st.slider("Absolute baseline b", -0.5, 1.0, round(nb_baselines[1], 2), 0.01, key="adv_baseline")
+        st.caption(f"Starts at the baseline the absolute method actually had at this step in the notebook "
+                   f"(**{nb_baselines[1]:.3f}**; it was {nb_baselines[21]:.3f} at step 21 and {nb_baselines[NB['steps']]:.3f} "
+                   f"at step {NB['steps']}). Slide it to see how much the absolute signal depends on it.")
+        mean = sum(raw) / len(raw)
+        std = math.sqrt(sum((r - mean) ** 2 for r in raw) / len(raw))
+        abs_adv = [r - baseline for r in raw]
+        rel_adv = rp.compute_group_advantages(raw)
+        limit = max(abs(v) for v in abs_adv + rel_adv) * 1.25
+
+        def push(advantages):
+            totals = {a: 0.0 for a in rp.ACTIONS}
+            for ro, v in zip(group, advantages):
+                totals[ro.action] += NB["lr"] * v
+            return totals
+
+        abs_push, rel_push = push(abs_adv), push(rel_adv)
+        push_limit = max(abs(v) for v in list(abs_push.values()) + list(rel_push.values())) * 1.3
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown("**Absolute**")
+            st.caption(f"A = reward − {baseline:.3f}")
+            st.plotly_chart(viz.signal_bars(labels, abs_adv, "Advantage per rollout", "advantage", zero_line=0,
+                                            y_range=[-limit, limit]), config={"displayModeBar": False}, key="adv_abs")
+            st.plotly_chart(viz.signal_bars(rp.ACTIONS, [abs_push[a] for a in rp.ACTIONS], "Push per action",
+                                            "logit change", y_range=[-push_limit, push_limit]),
+                            config={"displayModeBar": False}, key="adv_abs_push")
+        with right:
+            st.markdown("**Relative (GRPO)**")
+            st.caption(f"A = (reward − {mean:.3f}) / {std:.3f}")
+            st.plotly_chart(viz.signal_bars(labels, rel_adv, "Advantage per rollout", "advantage", zero_line=0,
+                                            y_range=[-limit, limit]), config={"displayModeBar": False}, key="adv_rel")
+            st.plotly_chart(viz.signal_bars(rp.ACTIONS, [rel_push[a] for a in rp.ACTIONS], "Push per action",
+                                            "logit change", y_range=[-push_limit, push_limit]),
+                            config={"displayModeBar": False}, key="adv_rel_push")
+
+        correct = [rp.is_correct_answer(ro.transcript, ro.correct_answer) for ro in group]
+        st.dataframe(pd.DataFrame([{
+            "#": i + 1, "action": ro.action, "correct": "✓" if ok else "✗", "reward": round(r, 3),
+            "absolute A": round(a, 3), "relative A": round(g, 3),
+            "same direction": "yes" if (a > 0) == (g > 0) else "no"}
+            for i, (ro, ok, r, a, g) in enumerate(zip(group, correct, raw, abs_adv, rel_adv))]), hide_index=True)
+
+        abs_mean = sum(abs_adv) / len(abs_adv)
+        wrong_up_abs = sum(1 for ok, a in zip(correct, abs_adv) if a > 0 and not ok)
+        wrong_up_rel = sum(1 for ok, g in zip(correct, rel_adv) if g > 0 and not ok)
+        disagree = sum(1 for a, g in zip(abs_adv, rel_adv) if (a > 0) != (g > 0))
+        st.markdown(
+            f"- **Centre:** the absolute advantages average **{abs_mean:+.3f}**, the relative ones **0.000**. "
+            "An absolute signal with a non-zero mean pushes *everything* in the group up (or down) a bit, on top of the "
+            "useful part.\n"
+            f"- **Direction:** {disagree} of {len(group)} rollouts get a different sign. Wrong answers pushed up: "
+            f"absolute **{wrong_up_abs}**, relative **{wrong_up_rel}**.\n"
+            f"- **Scale:** relative advantages always have std 1 within the group, whatever the rewards; the absolute "
+            f"ones have the rewards' own spread ({std:.3f}). Move the baseline: only the absolute side changes."
+        )
+        with st.expander("Why not update with the raw reward directly?"):
+            positive = sum(r > 0 for r in raw)
+            generous_push = push([max(-1.0, min(1.0, r + 0.4)) for r in raw])
+            generous_up = [a for a in rp.ACTIONS if generous_push[a] > 1e-9]
+            st.markdown(
+                f"A raw reward has no sense of *better than what*. Here {positive} of {len(raw)} rewards are positive, "
+                "so it happens to point roughly the right way, only because this reward model is centred near zero. "
+                f"Give the same answers a generous reward model (+0.4 on every score): then {len(generous_up)} of "
+                f"{len(rp.ACTIONS)} actions get pushed up ({', '.join(generous_up)}), including ones that only produced "
+                "wrong answers. That is what a baseline, and better still the group, fixes."
+            )
+        with st.expander("Is this exactly how GRPO and GSPO compute it?"):
+            st.markdown(
+                "Yes, up to one detail. GRPO (DeepSeekMath) and GSPO (Qwen) both use the group-normalized advantage "
+                "*(reward − group mean) / group std*, which statistically is a z-score within the group. "
+                "GSPO changes the importance ratio and clipping to the sequence level, not the advantage. The detail: "
+                "the notebook divides by the **population** std (and uses 1 when all rewards are equal); typical "
+                "GRPO implementations use the **sample** std plus a small ε. That rescales the advantages slightly but "
+                "never changes their sign or ranking. Some variants drop the std division altogether "
+                "(e.g. Dr. GRPO), keeping only *reward − group mean*."
+            )
+
+        st.divider()
+        st.markdown("##### The math: miscalibrate one prompt's reward model")
+        st.markdown(
+            "Real reward models are biased: one prompt type gets generous scores, another strict ones. "
+            "Change how *this prompt* is scored and compare both advantages with the calibrated ones (outlined):"
+        )
+        c1, c2 = st.columns(2)
+        scale = c1.slider("Scale (multiplies the reward)", 0.3, 1.7, 1.0, 0.05, key="adv_scale")
+        bias = c2.slider("Bias (added to the reward)", -0.4, 0.4, 0.0, 0.05, key="adv_bias")
+        observed = [max(-1.0, min(1.0, scale * r + bias)) for r in raw]
+        expected = sum(raw) / len(raw)  # the baseline a calibrated run would have learned
+        abs_now, abs_ref = [o - expected for o in observed], [r - expected for r in raw]
+        rel_now, rel_ref = rp.compute_group_advantages(observed), rp.compute_group_advantages(raw)
+        st.plotly_chart(viz.compare_advantages(labels, abs_now, rel_now, abs_ref, rel_ref),
+                        config={"displayModeBar": False}, key="adv_compare")
+        clipped = sum(1 for r in raw if abs(scale * r + bias) > 1.0)
+        abs_change = max(abs(a - b) for a, b in zip(abs_now, abs_ref))
+        rel_change = max(abs(a - b) for a, b in zip(rel_now, rel_ref))
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Absolute: largest change of an advantage", f"{abs_change:.2f}")
+        m2.metric("Relative: largest change of an advantage", f"{rel_change:.2f}")
+        m3.metric("Rewards clipped at ±1", f"{clipped} of {len(raw)}")
+        st.markdown("Why the relative advantages don't move: for any scale *s* > 0 and bias *b*, the group normalization cancels both:")
+        st.latex(r"\frac{(s\,r_i + b) - \operatorname{mean}(s\,r + b)}{\operatorname{std}(s\,r + b)}"
+                 r"= \frac{s\,(r_i - \bar r)}{s\,\sigma_r} = \frac{r_i - \bar r}{\sigma_r}")
+        if scale == 1.0 and bias == 0.0:
+            st.info("Move the sliders. Try scale 0.6 with bias −0.3 (a strict reward model), then scale 1.6 with bias +0.3.",
+                    icon=":material/tune:")
+        elif clipped == 0:
+            st.success(f"The absolute advantages moved by up to **{abs_change:.2f}**, the relative ones by "
+                       f"**{rel_change:.2f}**. The absolute signal shifts with every bias and stretches with every scale, "
+                       "so the policy would learn the reward model's quirks instead of which answers are better.",
+                       icon=":material/check_circle:")
+        else:
+            st.warning(f"**{clipped} of {len(raw)} rewards hit the ±1 limit** and become identical, so the ranking among "
+                       "them is lost, and now the relative advantages change too. That's **reward saturation**: when a "
+                       "reward model can't tell good answers apart any more, no advantage construction can. It's also why "
+                       "rewards saturating near the cap late in training weakens the signal.",
+                       icon=":material/compress:")
+        takeaway("<b>“Which is better?” is easier to answer reliably than “how good is this?”.</b> Relative advantages "
+                 "only need the ranking inside a group, so they survive reward models that are miscalibrated per prompt.")
+
+
+    with deep[1]:
+        left, right = st.columns([1, 1], gap="large")
+        with left:
+            st.markdown("#### The reward model")
+            st.markdown(
+                "- **+1** if the final answer is correct (the most important signal)\n"
+                "- a **length penalty** of 0.0009 per character (discourages verbosity)\n"
+                "- small **shaping bonuses**: tool use +0.06, verification +0.04, planning +0.02\n"
+                "- **−0.7** for refusing\n\n"
+                "Clipped to [−1, 1]."
+            )
+        with right:
+            code_panel("score_rollout (the reward model)", rp.score_rollout)
+            code_panel("render_transcript (what each action writes)", rp.render_transcript)
+
+        st.markdown("##### Question to all")
+        st.markdown("**If we removed the length penalty, would the model learn to ramble just to sound smarter?**")
+        st.caption("`length_penalty = 0.0009 * len(transcript)`")
+        with st.expander("Reveal the answer"):
+            st.markdown(f"### {rp.reveal_answer()}")
+
+        st.divider()
+        st.markdown("#### The noise map: a miscalibrated reward model")
+        st.markdown(
+            "In the real world a reward model is just another LLM, and it's biased: it might give higher scores to "
+            "specific topics or formats simply because of its own training data. The demo simulates that with a "
+            "per-prompt **scale** and **bias**, plus a little per-rollout noise:\n\n"
+            "`observed = clip(scale × raw + bias + noise)`\n\n"
+            "- **Absolute baseline's failure:** if a prompt sits in a *high-bias* zone, the agent over-rewards whatever "
+            "it does on that prompt, regardless of quality.\n"
+            "- **Relative feedback's success:** normalizing within the prompt group subtracts the bias and divides out "
+            "the scale (see scene 3 · Why relative?).\n\n"
+            f"At step **{NB['noise_shift_step']}** the reward model **drifts**: every prompt gets a new, wider scale and bias, "
+            "like a reward model update or a data-mix change in the middle of training."
+        )
+        st.plotly_chart(viz.noise_map_figure(rp.PROMPTS, notebook_run["noise_map"],
+                                             notebook_run["abs_maps"][NB["noise_shift_step"]]),
+                        config={"displayModeBar": False})
+        code_panel("create_reward_noise_map and apply_reward_noise", [rp.create_reward_noise_map, rp.apply_reward_noise])
+
+
+    with deep[2]:
+        st.markdown("##### The whole run at a glance")
+        st.plotly_chart(viz.training_summary(abs_s, rel_s, result["abs_pol"], result["rel_pol"], drift_step,
+                                             previous=previous), config={"displayModeBar": False})
+        how_to_read(
+            "This figure deliberately mixes **reward-model outputs**, **ground truth** and **optimization signals**, to "
+            "show where they align and where they don't.\n\n"
+            "- **Average reward (top left):** what the reward model says, with the absolute method's baseline (red dashed) "
+            "and the drift point. It is *not* task performance and *not* the learning signal. Similar curves don't imply "
+            "similar learning.\n"
+            "- **True correctness (top right):** measured against the correct answer, **never used in training**. "
+            "The only question that ultimately matters: is the agent actually solving the task?\n"
+            "- **Advantages (bottom left), the most important panel:** mean (solid) and spread (dashed) of the signal "
+            "used for updates. Absolute: the mean drifts toward zero as the baseline adapts, and the spread changes with "
+            "the reward model. Relative: the mean is 0 by construction and the spread stays stable.\n"
+            "- **Final policy (bottom right):** the accumulated effect of every update. Similar reward curves but different "
+            "policies mean the methods learned different internal preferences.\n\n"
+            "**Reward-model outputs are context. Advantages are the learning signal. Policies change because of "
+            "advantages, not rewards.**"
+        )
+        if len(history) > 1:
+            st.markdown("##### Your runs")
+            st.dataframe(pd.DataFrame([{
+                "run": h["label"],
+                "absolute correctness": f"{h['abs_stats'][-1]['correctness_rate']:.1%}",
+                "relative correctness": f"{h['rel_stats'][-1]['correctness_rate']:.1%}",
+                "absolute learned": h["abs_top"], "relative learned": h["rel_top"]} for h in history]), hide_index=True)
+
+        st.markdown("##### Experiments")
+        for question, answer in [
+            ("Switch the **miscalibrated reward model off**. Which method does better now?",
+             "Often the absolute method. Without per-prompt bias there is nothing for the group normalization to cancel, and dividing "
+             "by a small within-group spread can amplify tiny reward differences between equally good answers. Relative "
+             "feedback is about **robustness to a miscalibrated reward model**, not a free accuracy boost."),
+            ("Keep the notebook settings and change **only the seed** a few times. How stable is the gap?",
+             "The final correctness numbers move around from seed to seed; the gap in the notebook's run is on the large "
+             "side. What stays the same on every seed is the **advantage signal**: centred and well-scaled for the relative "
+             "method, shrinking for the absolute one (bottom left panel). Always compare RL methods across several seeds."),
+            ("Set the **group size to 2**. What happens to the relative method?",
+             "With two rollouts the group advantage is always ±1: it only says which of the two was better. Larger groups give a "
+             "more informative ranking, which is why GRPO samples many answers per prompt."),
+            ("Move the **drift** early (step 10) or late (step 70). Where do you see it?",
+             "In the reward curves and the absolute baseline, which has to re-adapt. The relative advantages keep their "
+             "centre and scale through the drift: the best answer in a group still wins."),
+        ]:
+            st.markdown(f"**{question}**")
+            with st.expander("Reveal"):
+                st.markdown(answer)
+
+        code_panel("train_absolute_baseline", rp.train_absolute_baseline,
+                   "Advantage = reward − running baseline (exponential moving average across all prompts).")
+        code_panel("train_group_relative", [rp.train_group_relative, rp.group_relative_advantages],
+                   "Advantage = (reward − group mean) / group std within each prompt group, as in GRPO. Same update for both: `logits[action] += lr * advantage`.")
+        st.caption("Policy update note: like the notebook, this uses a bandit-style shortcut (`logits += lr * advantage`) "
+                   "instead of gradients of log-probabilities, to show the effect of the advantage construction clearly.")
+
+
+    # shared by the step and ranking deep dives: whatever was last trained in scene 4
+    current = run(settings_key(ss.get("rp_current", NB)))
+    steps = len(current["abs_stats"])
+
+    with deep[3]:
+        st.markdown("A microscope on **one training step**: the exact objects the optimizer sees. "
+                    "Uses the run from scene 4 · Train it.")
+        k = st.slider("Training step", 1, steps, 1, key="rp_step")
+        i = k - 1
+        rel_adv = rp.group_relative_advantages(current["rel_rollouts"][i])
+        st.plotly_chart(viz.policy_at_step(current["abs_pol"][i], current["rel_pol"][i], k), config={"displayModeBar": False})
+        st.plotly_chart(viz.step_details(i, current["abs_rollouts"], current["abs_stats"], current["rel_rollouts"], rel_adv),
+                        config={"displayModeBar": False})
+        a, r = current["abs_stats"][i], current["rel_stats"][i]
+        st.markdown(
+            f"**Step {k}:** absolute advantages have mean **{a['mean_adv']:+.3f}** and spread **{a['std_adv']:.3f}** "
+            f"(baseline {a['baseline']:.3f}). Relative advantages have mean **{r['mean_adv']:+.3f}** and spread "
+            f"**{r['std_adv']:.3f}**. Compare steps 1, 21, 41 and {steps}."
+        )
+        how_to_read(
+            "- **Sorted rewards (top left / middle):** each dot is one rollout. For the absolute method the dashed line is "
+            "the **global baseline**: dots above it get a positive advantage, below it a negative one, and the distance "
+            "sets the size. If the baseline is misplaced or drifts, the whole signal shifts. For the relative method the "
+            "dashed line is only the mean: what counts is the order *within each prompt group*.\n"
+            "- **Reward → advantage (top right):** absolute is a straight line (advantage = reward − baseline). "
+            "Relative is scattered: the same reward can get very different advantages, depending on what else was "
+            "sampled for that prompt.\n"
+            "- **Advantage distributions (bottom left / middle):** absolute has a mean that isn't zero and a scale tied to "
+            "the rewards. Relative is centred at 0 with a stable spread: a well-conditioned signal by construction.\n"
+            "- **Mean advantage by action (bottom right):** which behaviours are being reinforced or suppressed right now. "
+            "Actions with consistently positive advantage will dominate the policy.\n\n"
+            "| | early step | late step |\n|---|---|---|\n"
+            "| reward spread | large | saturated |\n| absolute advantage | wide | collapses toward 0 |\n"
+            "| relative advantage | centred, std ≈ 1 | still centred, still spread |\n"
+            "| learning pressure | both | mainly relative |\n\n"
+            "Late in training, absolute advantages vanish when rewards saturate and the baseline catches up: gradients die "
+            "and the policy freezes. Relative advantages keep ranking the rollouts, so learning pressure remains."
+        )
+        with st.expander("Sample rollouts at this step"):
+            c1, c2 = st.columns(2)
+            for col, name, ros, advs in [
+                (c1, "Absolute", current["abs_rollouts"][i], [ro.reward - a["baseline"] for ro in current["abs_rollouts"][i]]),
+                (c2, "Relative", current["rel_rollouts"][i], rel_adv),
+            ]:
+                col.markdown(f"**{name}**")
+                col.dataframe(pd.DataFrame([{"action": ro.action, "reward": round(ro.reward, 3), "advantage": round(ad, 3),
+                                             "prompt": ro.prompt} for ro, ad in list(zip(ros, advs))[:12]]), hide_index=True)
+
+
+    with deep[4]:
+        st.markdown("Zoom into **one prompt group at one step**: *given several candidate rollouts for the same prompt, "
+                    "which ones are reinforced, and why?*")
+        c1, c2 = st.columns([1, 2])
+        k = c1.select_slider("Step", options=list(range(1, steps + 1)), value=1, key="rp_rank_step")
+        prompt_id = c2.selectbox("Prompt", [p[0] for p in rp.PROMPTS], format_func=lambda pid: rp.PROMPTS[pid][1],
+                                 key="rp_rank_prompt")
+        i = k - 1
+        noise = current["abs_maps"][i]
+        if noise:
+            scale, bias = noise[prompt_id]
+            st.caption(f"Reward noise for this prompt at this step: scale **{scale:.2f}**, bias **{bias:+.2f}**. "
+                       "*Raw* is reconstructed as (observed − bias) / scale, for teaching only.")
+
+        def ranking(rollouts, method):
+            group = [ro for ro in rollouts[i] if ro.prompt_id == prompt_id]
+            observed = [ro.reward for ro in group]
+            if method == "abs":
+                advantages = [o - current["abs_stats"][i]["baseline"] for o in observed]
+            else:
+                advantages = rp.compute_group_advantages(observed)
+            order = sorted(range(len(group)), key=lambda j: observed[j], reverse=True)
+            rows = []
+            for rank, j in enumerate(order, 1):
+                row = {"rank": rank, "action": group[j].action}
+                if noise:
+                    row["raw"] = round((observed[j] - bias) / scale if scale > 0 else observed[j], 3)
+                row.update({"observed": round(observed[j], 3), "advantage": round(advantages[j], 3),
+                            "correct": "✓" if rp.is_correct_answer(group[j].transcript, group[j].correct_answer) else "✗"})
+                rows.append(row)
+            return pd.DataFrame(rows), sum(observed) / len(observed), advantages
+
+        left, right = st.columns(2, gap="large")
+        for col, method, title in [(left, "abs", "Absolute baseline"), (right, "rel", "Group relative")]:
+            table, mean_reward, advs = ranking(current[f"{method}_rollouts"], method)
+            with col:
+                st.markdown(f"**{title}**")
+                st.dataframe(table.style.map(lambda v: f"color: {'#1fa37a' if v > 0 else '#d64545'}; font-weight: 600",
+                                             subset=["advantage"]).format(precision=3), hide_index=True)
+                extra = f" · global baseline {current['abs_stats'][i]['baseline']:.3f}" if method == "abs" else ""
+                st.caption(f"group mean reward {mean_reward:.3f}{extra} · advantage mean {sum(advs) / len(advs):+.3f}, "
+                           f"std {pd.Series(advs).std(ddof=0):.3f}")
+        how_to_read(
+            "- **Rank** by observed reward · **raw** is the reward before noise (teaching only) · **observed** is what the "
+            "optimizer sees · **advantage** is the training signal · **correct** is ground truth, never used in training.\n"
+            "- **Absolute:** every rollout is compared with one **global** baseline. Early on the baseline is poorly "
+            "calibrated, so even mediocre rollouts get a large positive advantage, and a generously scored prompt can "
+            "reinforce wrong answers. Late in training, once rewards saturate near the cap, correct rollouts all get almost "
+            "the same advantage: no signal *among* good behaviours.\n"
+            "- **Relative:** rollouts are compared with the **other rollouts for the same prompt**. The best one always gets "
+            "a positive advantage and the worst a negative one, whatever the absolute reward; mean 0, std 1 by construction. "
+            "Even when every rollout picks the same action, the ranking still creates a learning signal.\n\n"
+            "*Learning depends on who wins, not by how much.* When debugging training, look at rankings, not reward curves: "
+            "**who is being reinforced, and why?**"
+        )
+
+
+    with deep[5]:
+        st.markdown("#### PPO vs GRPO")
+        st.markdown(
+            "PPO often struggles in complex agent training, which is why the field is moving toward **GRPO/GSPO** and "
+            "their variants. PPO's effectiveness hinges entirely on its **value estimate**:\n\n"
+            "- **Computational burden:** the value model (critic) is usually as large as the policy, doubling memory and "
+            "compute.\n"
+            "- **Scaling:** making a value model work for long responses and complex reasoning is very hard.\n"
+            "- **Noisy advantage estimates:** when the critic is wrong, updates move in the wrong direction, slowing or "
+            "even destroying learning, just like the absolute baseline whose advantages have arbitrary mean and scale."
+        )
+        st.markdown("#### How GRPO solves the absolute problem")
+        st.markdown("GRPO skips the value model. It samples a **group of G answers to the same query x** and uses the group "
+                    "itself as a real-data baseline:")
+        st.latex(r"A_i=\frac{r(x, y_i)-\operatorname{mean}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}"
+                 r"{\operatorname{std}\left(\{r(x, y_j)\}_{j=1}^{G}\right)}")
+        st.markdown(
+            "- The advantage is **always centred around 0**: the group average is the baseline, so the signal is "
+            "comparative, not absolute.\n"
+            "- Dividing by the std keeps a **consistent scale (≈ 1)**, preventing the signal collapse seen in the absolute "
+            "baseline late in training.\n"
+            "- If the reward model **drifts**, the group mean moves with it. The best answer in the group still has the "
+            "highest relative score, even if its absolute value shifted."
+        )
+        st.link_button("Group Sequence Policy Optimization (paper)", "https://arxiv.org/pdf/2507.18071",
+                       icon=":material/description:")
+        st.divider()
+        st.divider()
+        st.markdown("#### Key takeaways")
+        c1, c2 = st.columns(2, gap="large")
+        c1.markdown(
+            "**Absolute feedback (baseline method)**\n"
+            "- numeric rewards with a running baseline: `advantage = reward − baseline`\n"
+            "- the moving-average baseline reduces variance but can't handle per-prompt scale differences\n"
+            "- advantages can have any scale, depending on the reward distribution"
+        )
+        c2.markdown(
+            "**Relative feedback (group method)**\n"
+            "- absolute rewards first, then **normalized within each prompt group** (not DPO preference pairs)\n"
+            "- `advantage = (reward − group mean) / group std`: mean 0, std ≈ 1\n"
+            "- the best rollout in each group gets a positive advantage regardless of the reward scale"
+        )
+        st.markdown(
+            "**Why this matters for LLMs:** reward values aren't globally comparable (prompts differ in difficulty), "
+            "reward models can be miscalibrated per prompt type, and *“which is better?”* is easier to judge than "
+            "*“how good is this?”*."
+        )
+        takeaway("<b>Relative feedback turns reward into within-prompt advantage, so learning is driven by ranking rather "
+                 "than absolute scale.</b> What survives to the end of training is not reward, it is ranking information.")
+        st.divider()
+        st.markdown("#### Where does “expected” come from?")
+        st.markdown("Every method computes *advantage = reward − what we expected*. They differ in **where the expectation "
+                    "comes from**, and that is the whole story of this demo:")
+        c1, c2, c3, c4 = st.columns(4, gap="medium")
+        with c1.container(border=True):
+            st.markdown("**Running baseline**")
+            st.caption("REINFORCE with a baseline · *the absolute method here*")
+            st.markdown("One number: an average of past rewards over **all** prompts. Easy and hard prompts, generous and "
+                        "strict scoring, all mixed: **apples vs oranges**.")
+        with c2.container(border=True):
+            st.markdown("**PPO: a critic**")
+            st.caption("value model V(s)")
+            st.markdown("A **second model**, about as large as the policy, trained to *predict* the expected reward for "
+                        "each prompt. Doubles memory and compute, and when the estimate is wrong, advantages point the "
+                        "wrong way.")
+        with c3.container(border=True):
+            st.markdown("**DPO: preference pairs**")
+            st.caption("offline, no reward model in training")
+            st.markdown("Relative too: **chosen vs rejected** answer to the same prompt. But the pairs are a **fixed "
+                        "dataset**: the model never explores its own new answers, and gets one comparison per pair.")
+        with c4.container(border=True):
+            st.markdown("**GRPO / GSPO: the group**")
+            st.caption("*the relative method here*")
+            st.markdown("Sample **G answers from the current policy** for the same prompt. The group's mean *is* the "
+                        "expected reward, **measured, not estimated**. Same prompt, same reward model: **apples to apples**.")
+
+
