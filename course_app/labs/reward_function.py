@@ -8,6 +8,7 @@ Differences, all forced by running outside the notebook:
   - synchronous calls instead of `await`
   - `print(...)` progress goes to a callback so the page can show it
   - a clearer input-generation prompt: inputs are what a user sends, never the expected output
+  - the judge also sees the input the answers respond to (see robust_score_group)
   - `robust_score_group` takes the candidate outputs directly instead of an
     `art.TrajectoryGroup` (it only ever reads each trajectory's last message)
 Errors are not swallowed beyond what the notebook itself does.
@@ -201,10 +202,14 @@ class Judgement:
 
 
 def robust_score_group(client, candidate_outputs: List[str], judge_model: str, task_description: str,
-                       temperature: float = 0.0) -> Judgement:
+                       temperature: float = 0.0, input_text: Optional[str] = None) -> Judgement:
     """
     Robust scoring that assigns reward in [0, 1] per trajectory.
     Works even if the judge wraps JSON in markdown fences.
+
+    One fix over the notebook: the notebook sends the judge only the answers. For tasks that transform an input
+    (emojify, grammar, changelog…) the judge then can't check faithfulness ("no story provided") and scores 0.
+    RULER in ART judges whole trajectories, so here the group's shared input is included too.
     """
     candidates = [{"idx": i, "assistant_output": out} for i, out in enumerate(candidate_outputs)]
 
@@ -215,8 +220,10 @@ def robust_score_group(client, candidate_outputs: List[str], judge_model: str, t
         "Scores must be floats in [0, 1].\n"
     )
 
+    shared_input = f"INPUT (the same for every candidate):\n{input_text}\n\n" if input_text else ""
     user = (
         f"TASK:\n{task_description}\n\n"
+        f"{shared_input}"
         "CANDIDATES:\n"
         f"{json.dumps(candidates, ensure_ascii=False, indent=2)}\n\n"
         "Scoring rubric:\n"
@@ -295,3 +302,89 @@ def task_label(constant_name: str) -> str:
 
 
 __all__ = ["TASK_DESCRIPTIONS"]
+
+
+# ------------------------------------------------------------------ one training step without the GPU update
+POLICY_MODEL = "qwen/qwen-2.5-7b-instruct"  # one of the notebook's BASE_MODEL options ("Qwen/Qwen2.5-7B-Instruct");
+                                            # its default Qwen3-4B-Instruct-2507 isn't served on OpenRouter
+SYSTEM_PROMPT_GENERATION_MODEL = "openai/gpt-6-luna-pro"  # notebook: "openrouter/moonshotai/kimi-k2"
+TRAINING_CONFIG = {  # from the notebook
+    "num_training_inputs": 25, "groups_per_step": 1, "num_epochs": 3, "rollouts_per_group": 2, "learning_rate": 1e-5,
+}
+
+
+def generate_system_prompt(client, task_description: str) -> str:
+    """The notebook's generate_system_prompt: turn the task description into the policy's system prompt."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Generate a clear, concise system prompt for a model that will perform the following task. "
+                "The prompt should be direct and instructional."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Task: {task_description}\n\nGenerate a system prompt for this task.",
+        },
+    ]
+    response = client.chat.completions.create(
+        model=SYSTEM_PROMPT_GENERATION_MODEL,
+        messages=messages,
+        temperature=0.3,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+def rollout(client, system_prompt: str, input_text: str) -> str:
+    """The notebook's rollout(): the policy answers one training input (temperature 0.7)."""
+    response = client.chat.completions.create(
+        model=POLICY_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": input_text},
+        ],
+        temperature=0.7,
+    )
+    return response.choices[0].message.content or ""
+
+
+@dataclass
+class GroupResult:
+    input_text: str
+    answers: List[str]
+    judgement: Optional[Judgement] = None
+    advantages: Optional[List[float]] = None
+    error: Optional[str] = None
+
+
+def training_step_preview(client, task_description: str, system_prompt: str, inputs: List[str],
+                          rollouts_per_group: int) -> List[GroupResult]:
+    """
+    What one pass of the notebook's training loop produces, up to model.train():
+    for each input, a group of rollouts from the policy, scored together by the judge.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        answer_futures = [[pool.submit(rollout, client, system_prompt, text) for _ in range(rollouts_per_group)]
+                          for text in inputs]
+        groups = []
+        for text, futures in zip(inputs, answer_futures):
+            try:
+                groups.append(GroupResult(text, [f.result() for f in futures]))
+            except Exception as e:
+                groups.append(GroupResult(text, [], error=f"{type(e).__name__}: {e}"))
+
+        def judge(group: GroupResult):
+            if group.error:
+                return
+            try:
+                group.judgement = robust_score_group(client, group.answers, RULER_MODEL, task_description,
+                                                     input_text=group.input_text)
+                group.advantages = group_relative_advantages(group.judgement.scores)
+            except Exception as e:
+                group.error = f"{type(e).__name__}: {e}"
+
+        list(pool.map(judge, groups))
+    return groups

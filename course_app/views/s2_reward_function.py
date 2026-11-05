@@ -2,20 +2,22 @@ import time
 
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 from core import llm
 from core.ui import code_panel, page_header, takeaway, task_card
 from labs import reward_function as rf
 from labs import s2_notebook_source as src
 
+ss = st.session_state
+CFG = rf.TRAINING_CONFIG
+
 page_header(
     session=2,
-    title="Reward functions: let a judge rank the answers",
+    title="Reward functions: teach a new skill with just a task description",
     subtitle=(
-        "You will train a small model on a **custom task**. Nobody writes labels: a model generates the "
-        "training inputs, and a **judge model** scores the policy's answers in groups. Those scores are the reward. "
-        "The task description is the one thing you control, so it is your **reward specification**."
+        "With ART + RULER you don't write labels or a scoring function. You **describe the task in words**. "
+        "From that description a model generates the training inputs, the policy answers each one several times, "
+        "and a **judge** scores the answers against your description. Those scores are the reward."
     ),
     minutes=15,
     notebook_path="hands_on/session_02_HANDS_ON_reward_function.ipynb",
@@ -26,8 +28,10 @@ task_card(
         "**Write your `TASK_DESCRIPTION`**: pick a sample task or write your own. Be specific about the input "
         "and the exact output format.",
         "**Generate the training inputs** and check them: are they realistic *inputs* for your task?",
-        "**Run the judge demo** and read how the judge scores each answer against your description.",
-        "**Change the description** (or switch task) and judge again. Does the ranking change?",
+        "**Run one training step** on your task: the policy answers a few inputs, the judge scores each group. "
+        "Read which answers would be reinforced and why.",
+        "**Sharpen the description** (format, priorities, constraints) and run the step again. Do the scores and "
+        "the ranking change?",
     ],
     why=(
         "In this setup nobody writes labels. A model generates the training inputs, the policy produces a **group** "
@@ -47,21 +51,23 @@ if not llm.is_configured():
     st.error("This page needs the instructor's OpenRouter key, which isn't configured on the server yet.")
     st.stop()
 
-c1, c2, c3 = st.columns(3)
-c1.markdown(f"**A · Generate rollouts**\n\nThe policy writes `rollouts_per_group = 2` answers per input. "
-            "You need *comparisons*, not one perfect label.")
-c2.markdown(f"**B · Judge rollouts**\n\n`{rf.RULER_MODEL}` scores every answer in a group from 0 to 1 "
-            "and returns strict JSON.")
-c3.markdown("**C · Update the policy**\n\nART trains a LoRA adapter so high-reward answers become more likely. "
-            "*This step needs a GPU: run it in Colab.*")
-st.caption(f"The notebook uses `moonshotai/kimi-k2` to generate inputs and `deepseek/deepseek-r1-0528` as judge. "
-           f"This lab uses `{rf.INPUT_GENERATION_MODEL}` for both, so it responds within a live session.")
+c1, c2, c3, c4 = st.columns(4)
+c1.markdown("**1 · Training inputs**\n\nGenerated from your description: the prompts the model practises on. "
+            "No answers.")
+c2.markdown(f"**2 · Rollouts**\n\nThe policy answers each input **{CFG['rollouts_per_group']}×** "
+            "(`rollouts_per_group`): a group to compare.")
+c3.markdown("**3 · Judge**\n\nScores every answer in the group from 0 to 1 against **your description**.")
+c4.markdown("**4 · Update**\n\nART trains a LoRA adapter so above-average answers become more likely. "
+            "*Needs a GPU: run it in Colab.*")
+st.caption(f"Models: the policy is `{rf.POLICY_MODEL}`, one of the notebook's `BASE_MODEL` options (its default "
+           f"Qwen3-4B-Instruct isn't available on OpenRouter). Inputs, system prompt and judge use "
+           f"`{rf.INPUT_GENERATION_MODEL}`; the notebook uses kimi-k2 and deepseek-r1, which were too slow for a live session.")
 code_panel("Notebook settings", src.SETTINGS)
 
 st.divider()
 
 # ---------------------------------------------------------------- TODO
-st.markdown("#### TODO · Choose your TASK_DESCRIPTION")
+st.markdown("#### TODO · Write your TASK_DESCRIPTION")
 names = list(rf.TASK_DESCRIPTIONS) + ["CUSTOM_TASK_DESCRIPTION"]
 choice = st.radio("Sample tasks", names, format_func=lambda n: rf.task_label(n) if n in rf.TASK_DESCRIPTIONS else "Custom",
                   horizontal=True, key="s2_task_choice")
@@ -69,153 +75,224 @@ if choice == "CUSTOM_TASK_DESCRIPTION":
     task_description = st.text_area("Describe your custom task (be specific!)", key="s2_custom_task", height=200,
                                     placeholder="Describe the input the model gets and the exact output format you expect…")
 else:
-    task_description = rf.TASK_DESCRIPTIONS[choice]
-    st.code(task_description.strip(), language="text", wrap_lines=True)
-st.code(f"TASK_DESCRIPTION = {choice}", language="python")
+    task_description = st.text_area("Task description (edit it to sharpen your reward specification)",
+                                    rf.TASK_DESCRIPTIONS[choice].strip(), height=220, key=f"s2_desc_{choice}")
+st.code(f"TASK_DESCRIPTION = {choice if choice != 'CUSTOM_TASK_DESCRIPTION' else 'CUSTOM_TASK_DESCRIPTION'}",
+        language="python")
 task_ready = bool(task_description.strip())
 
 st.divider()
 
-# ---------------------------------------------------------------- generate dataset
-st.markdown("#### 1 · Generate the training dataset")
+# ---------------------------------------------------------------- 1 · training inputs
+st.markdown("#### 1 · Generate the training inputs")
 st.markdown(
-    f"`{rf.INPUT_GENERATION_MODEL}` invents {rf.NUM_TRAINING_INPUTS} realistic, different inputs for your task. "
-    "Nothing is labelled: the judge will provide the signal later."
+    f"`{rf.INPUT_GENERATION_MODEL}` reads your description and invents {CFG['num_training_inputs']} realistic, "
+    "different **inputs**: what a user would send. They have **no answers attached**: the model writes the answers "
+    "during training, and the judge decides how good they are."
 )
-code_panel("generate_training_inputs and extract_json_object", [rf.generate_training_inputs, rf.extract_json_object])
+code_panel("generate_training_inputs and extract_json_object", [rf.generate_training_inputs, rf.extract_json_object],
+           "The prompt is a little clearer than the notebook's: it insists that inputs never contain the expected output.")
 
-if st.button(f"Generate {rf.NUM_TRAINING_INPUTS} training inputs", icon=":material/dataset:", disabled=not task_ready):
+if st.button(f"Generate {CFG['num_training_inputs']} training inputs", icon=":material/dataset:", disabled=not task_ready):
     try:
         llm.reserve_calls(rf.MAX_GENERATION_ATTEMPTS)
     except llm.BudgetExceeded as e:
         st.warning(str(e))
     else:
-        logs, calls = [], rf.MAX_GENERATION_ATTEMPTS
-        start = time.time()
+        calls, start = rf.MAX_GENERATION_ATTEMPTS, time.time()
         with st.status(f"Calling {rf.INPUT_GENERATION_MODEL}…", expanded=True) as status:
             try:
-                inputs, calls = rf.generate_training_inputs(
-                    llm.client(), task_description, num_examples=rf.NUM_TRAINING_INPUTS,
-                    log=lambda line: (logs.append(line), st.text(line)),
-                )
-                st.session_state.s2_inputs = {"task": task_description, "inputs": inputs}
+                inputs, calls = rf.generate_training_inputs(llm.client(), task_description,
+                                                            num_examples=CFG["num_training_inputs"], log=st.text)
+                ss.s2_inputs = {"task": task_description, "inputs": inputs}
                 status.update(label=f"Generated {len(inputs)} training inputs in {time.time() - start:.0f}s",
                               state="complete", expanded=False)
             except Exception as e:
-                st.session_state.s2_inputs = {"task": task_description, "error": f"{type(e).__name__}: {e}"}
+                ss.s2_inputs = {"task": task_description, "error": f"{type(e).__name__}: {e}"}
                 status.update(label="Generation failed", state="error")
         llm.release_calls(rf.MAX_GENERATION_ATTEMPTS - calls)
+        ss.pop("s2_step", None)
 
-generated = st.session_state.get("s2_inputs")
+generated = ss.get("s2_inputs")
+inputs_ready = bool(generated and "inputs" in generated)
 if generated:
     if generated.get("task") != task_description:
-        st.caption("These inputs were generated for a different task description. Generate again to match your current task.")
+        st.caption("These inputs were generated for a different task description. Generate again to match it.")
     if "error" in generated:
         st.error(f"`{generated['error']}`")
     else:
-        st.markdown(f"**Generated {len(generated['inputs'])} training inputs**")
-        cols = st.columns(3)
-        for i, text in enumerate(generated["inputs"]):
-            with cols[i % 3].container(border=True):
-                st.caption(f"Example {i + 1}")
-                st.markdown(text)
+        with st.expander(f"The {len(generated['inputs'])} training inputs", expanded=True):
+            cols = st.columns(3)
+            for i, text in enumerate(generated["inputs"]):
+                with cols[i % 3].container(border=True):
+                    st.caption(f"Input {i + 1}")
+                    st.markdown(text)
+
+st.markdown("##### How these inputs become training")
+steps = CFG["num_training_inputs"] * CFG["num_epochs"] // CFG["groups_per_step"]
+st.markdown(
+    f"With the notebook's `TRAINING_CONFIG`, each **training step** takes `groups_per_step = {CFG['groups_per_step']}` "
+    f"input, lets the model answer it `rollouts_per_group = {CFG['rollouts_per_group']}` times, has the judge score "
+    f"that group, and updates the model. `num_epochs = {CFG['num_epochs']}` passes over the "
+    f"{CFG['num_training_inputs']} inputs make **{steps} training steps**, "
+    f"**{steps * CFG['rollouts_per_group']} answers** and **{steps} judge calls**."
+)
+fig = go.Figure(go.Heatmap(
+    z=[[e + 1] * CFG["num_training_inputs"] for e in range(CFG["num_epochs"])],
+    x=[f"{i + 1}" for i in range(CFG["num_training_inputs"])], y=[f"epoch {e + 1}" for e in range(CFG["num_epochs"])],
+    text=[[f"step {e * CFG['num_training_inputs'] + i + 1}" for i in range(CFG["num_training_inputs"])]
+          for e in range(CFG["num_epochs"])],
+    hovertemplate="input %{x} · %{y} · %{text}<extra></extra>", colorscale=[[0, "#cfe0f7"], [1, "#2f7de1"]],
+    showscale=False, xgap=3, ygap=3))
+fig.update_layout(height=190, margin=dict(l=10, r=10, t=10, b=30), xaxis_title="training input")
+st.plotly_chart(fig, config={"displayModeBar": False})
+st.caption("Each cell is one training step. The same input comes back in every epoch, answered by the model as it "
+           "is *at that point*: if training works, the later answers score higher.")
+code_panel("The notebook's training loop", src.TRAINING_LOOP)
 
 st.divider()
 
-# ---------------------------------------------------------------- judge demo
-st.markdown("#### 2 · Judge demo")
+# ---------------------------------------------------------------- 2 · one training step
+st.markdown("#### 2 · Run one training step on your task")
 st.markdown(
-    "The notebook gives the judge one input and three hand-written answers (good, mediocre and bad bug reports) "
-    "as a **group**. `robust_score_group` asks the judge to score each answer against **your TASK_DESCRIPTION**."
+    "This runs the notebook's loop for real on your first inputs, up to `model.train()`: the description becomes the "
+    "policy's **system prompt**, the policy writes a **group of answers** per input, and the judge scores each group."
 )
-st.markdown(f"**test_input**: {rf.JUDGE_DEMO_INPUT}")
-cols = st.columns(3)
-for col, (name, text) in zip(cols, rf.JUDGE_DEMO_CANDIDATES.items()):
-    with col.container(border=True):
-        st.caption(name)
-        st.text(text)
-st.caption("These three answers are bug reports. Predict how the judge will score them for the task you selected.")
-code_panel("robust_score_group", rf.robust_score_group,
-           "The rubric is the reward function. `extract_json_object` makes it robust to code fences and extra text.")
-code_panel("The judge demo cell", src.JUDGE_DEMO)
+c1, c2 = st.columns(2)
+n_inputs = c1.slider("Inputs (one group each)", 1, 3, 2, key="s2_n_inputs")
+group_size = c2.slider("Answers per input (rollouts_per_group)", 2, 6, 4, key="s2_group",
+                       help=f"The notebook uses {CFG['rollouts_per_group']}. More comparisons give the judge a richer "
+                            "ranking, one of the notebook's suggested improvements.")
+code_panel("generate_system_prompt and rollout (notebook)", src.SYSTEM_PROMPT_GENERATION + "\n\n" + src.ROLLOUT)
+code_panel("robust_score_group (the judge)", rf.robust_score_group,
+           "The rubric is the reward function. `extract_json_object` makes it robust to code fences and extra text. "
+           "Unlike the notebook, the judge also sees the input the answers respond to, so it can check they're faithful to it.")
 
-if st.button("Score the group with the judge", type="primary", icon=":material/gavel:", disabled=not task_ready):
+if st.button("Run one training step", type="primary", icon=":material/play_arrow:",
+             disabled=not (task_ready and inputs_ready)):
+    calls = 1 + n_inputs * group_size + n_inputs
     try:
-        llm.reserve_calls(1)
+        llm.reserve_calls(calls)
     except llm.BudgetExceeded as e:
         st.warning(str(e))
     else:
         start = time.time()
-        with st.spinner(f"{rf.RULER_MODEL} is judging the answers…"):
+        with st.status("Running one training step…", expanded=True) as status:
             try:
-                judgement = rf.robust_score_group(llm.client(), list(rf.JUDGE_DEMO_CANDIDATES.values()),
-                                                  judge_model=rf.RULER_MODEL, task_description=task_description)
-                st.session_state.s2_judgement = {"task": task_description, "result": judgement,
-                                                 "seconds": time.time() - start}
+                prompts = ss.setdefault("s2_system_prompts", {})
+                if task_description not in prompts:
+                    st.text(f"Turning your description into a system prompt ({rf.SYSTEM_PROMPT_GENERATION_MODEL})…")
+                    prompts[task_description] = rf.generate_system_prompt(llm.client(), task_description)
+                st.text(f"{rf.POLICY_MODEL} writes {group_size} answers to each of {n_inputs} input(s); "
+                        f"{rf.RULER_MODEL} judges each group…")
+                groups = rf.training_step_preview(llm.client(), task_description, prompts[task_description],
+                                                  generated["inputs"][:n_inputs], group_size)
+                ss.s2_step = {"task": task_description, "system_prompt": prompts[task_description], "groups": groups,
+                              "seconds": time.time() - start}
+                status.update(label=f"Training step done in {time.time() - start:.0f}s", state="complete",
+                              expanded=False)
             except Exception as e:
-                st.session_state.s2_judgement = {"task": task_description, "error": f"{type(e).__name__}: {e}"}
-        runs = st.session_state.setdefault("s2_runs", [])
-        j = st.session_state.s2_judgement
-        runs.append({"task": rf.task_label(choice) if choice in rf.TASK_DESCRIPTIONS else "Custom",
-                     **({k: round(s, 2) for k, s in zip(rf.JUDGE_DEMO_CANDIDATES, j["result"].scores)}
-                        if "result" in j else {"error": j["error"]})})
+                ss.s2_step = {"task": task_description, "error": f"{type(e).__name__}: {e}"}
+                status.update(label="The training step failed", state="error")
+        step = ss.s2_step
+        if "groups" in step:
+            scored = [g for g in step["groups"] if g.judgement]
+            all_scores = [s for g in scored for s in g.judgement.scores]
+            ss.setdefault("s2_runs", []).append({
+                "task": rf.task_label(choice) if choice in rf.TASK_DESCRIPTIONS else "Custom",
+                "description edited": choice in rf.TASK_DESCRIPTIONS
+                                      and task_description.strip() != rf.TASK_DESCRIPTIONS[choice].strip(),
+                "mean score": round(sum(all_scores) / len(all_scores), 2) if all_scores else None,
+                "groups with no signal": sum(1 for g in scored if max(g.judgement.scores) - min(g.judgement.scores) < 1e-9),
+                "groups": len(step["groups"]),
+            })
 
-judged = st.session_state.get("s2_judgement")
-if judged:
-    if judged["task"] != task_description:
-        st.caption("This judgement was made for a different task description. Score again to match your current task.")
-    if "error" in judged:
-        st.error(f"Scoring failed, as it would in the notebook: `{judged['error']}`. "
-                 "In the training loop the notebook retries up to 10 times.")
+step = ss.get("s2_step")
+if step:
+    if step["task"] != task_description:
+        st.caption("This step was run for a different task description. Run it again to match it.")
+    if "error" in step:
+        st.error(f"`{step['error']}`")
     else:
-        result: rf.Judgement = judged["result"]
-        st.markdown(f"**The judge's verdict** · {judged['seconds']:.0f}s")
-        ranked = sorted(zip(rf.JUDGE_DEMO_CANDIDATES, result.scores, result.rationales), key=lambda r: -r[1])
-        for name, score, rationale in ranked:
-            rank = 1 + sum(s > score for s in result.scores)
-            tied = result.scores.count(score) > 1
-            with st.container(border=True):
-                left, right = st.columns([1, 3])
-                left.metric(f"Rank {rank}{' (tied)' if tied else ''} · {name}", f"{score:.2f}")
-                left.progress(score)
-                right.markdown(f"**Rationale**: {rationale}")
+        with st.expander("The system prompt generated from your description", expanded=False):
+            st.markdown(step["system_prompt"])
+        for gi, group in enumerate(step["groups"], 1):
+            st.markdown(f"##### Group {gi} · input: *{group.input_text}*")
+            if group.error:
+                st.error(f"`{group.error}`")
+                continue
+            scores, advs = group.judgement.scores, group.advantages
+            per_row = 2
+            cols = []
+            for _ in range(0, len(group.answers), per_row):
+                cols += st.columns(per_row, gap="medium")
+            for k, (col, answer, score, adv, why) in enumerate(
+                    zip(cols, group.answers, scores, advs, group.judgement.rationales), 1):
+                with col.container(border=True):
+                    st.caption(f"Answer {k}")
+                    st.text(answer[:600] + ("…" if len(answer) > 600 else ""))
+                    st.metric("Judge score (reward)", f"{score:.2f}")
+                    if abs(adv) < 1e-9:
+                        st.markdown("**± 0** · no push")
+                    elif adv > 0:
+                        st.markdown(f":green[**▲ {adv:+.2f}** · more likely]")
+                    else:
+                        st.markdown(f":red[**▼ {adv:+.2f}** · less likely]")
+                    st.caption(why)
+            if max(scores) - min(scores) < 1e-9:
+                st.info("Every answer in this group got the **same score**, so all advantages are 0: this group would "
+                        "**not change the model at all**. Learning only comes from differences *within* a group. A "
+                        "stricter description, or more answers per input, can create those differences.",
+                        icon=":material/drag_handle:")
+            else:
+                best = max(range(len(scores)), key=scores.__getitem__)
+                st.caption(f"Advantage = (score − group mean {sum(scores) / len(scores):.2f}) / group std. Training "
+                           f"pushes answer {best + 1} up the most, even if every answer is decent: only the ranking "
+                           "inside the group matters.")
+            with st.expander("Raw judge output"):
+                st.code(group.judgement.raw, language="json", wrap_lines=True)
+        st.markdown(
+            "**What `model.train()` would do next:** nudge the LoRA weights so that answers like the green ones "
+            "become more likely for inputs like these, and the red ones less likely. Then the next training step "
+            "takes the next input. Over all steps the model learns your task, guided only by your description."
+        )
 
-        advantages = rf.group_relative_advantages(result.scores)
-        labels = list(rf.JUDGE_DEMO_CANDIDATES)
-        fig = make_subplots(rows=1, cols=2, subplot_titles=("Reward = judge score", "Group-relative advantage"))
-        fig.add_trace(go.Bar(x=labels, y=result.scores, marker_color="#2f7de1"), row=1, col=1)
-        fig.add_trace(go.Bar(x=labels, y=advantages,
-                             marker_color=["#1fa37a" if a > 0 else "#d64545" for a in advantages]), row=1, col=2)
-        fig.update_yaxes(range=[0, 1.05], row=1, col=1)
-        fig.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=40, b=10))
-        st.plotly_chart(fig, config={"displayModeBar": False})
-        if max(result.scores) - min(result.scores) < 1e-9:
-            st.warning(
-                "All answers got the **same score**, so every advantage is 0: this group carries **no learning "
-                "signal**. Group-relative methods only learn from differences *within* a group.",
-                icon=":material/drag_handle:",
-            )
-        else:
-            st.caption("Like Frozen Lake's advantage bars: answers above the group average are pushed up, the others down.")
-
-        with st.expander("Raw judge output (before extract_json_object)"):
-            st.code(result.raw, language="json", wrap_lines=True)
-
-runs = st.session_state.get("s2_runs", [])
+runs = ss.get("s2_runs", [])
 if len(runs) > 1:
-    st.markdown("#### Your judge runs")
+    st.markdown("##### Your training steps")
     st.dataframe(runs, hide_index=True)
+    st.caption("Compare runs after editing the description: a sharper reward specification changes the scores, and "
+               "which answers get reinforced.")
+
+with st.expander("The notebook's judge demo (three hand-written bug reports)"):
+    st.markdown(
+        "The notebook also tests the judge on one input and three fixed answers: good, mediocre and bad **bug "
+        "reports**. They only make sense for a bug-report task description; for the sample tasks above the judge "
+        "correctly gives all three 0. That's why this page scores answers the policy wrote **for your task** instead."
+    )
+    st.markdown(f"**test_input**: {rf.JUDGE_DEMO_INPUT}")
+    cols = st.columns(3)
+    for col, (name, text) in zip(cols, rf.JUDGE_DEMO_CANDIDATES.items()):
+        with col.container(border=True):
+            st.caption(name)
+            st.text(text)
+    code_panel("The judge demo cell", src.JUDGE_DEMO)
 
 st.divider()
 st.markdown("#### Check yourself")
 for question, answer in [
-    ("Run the judge demo with the Grammarly task and with another task. Why do the same three answers get different scores?",
-     "The judge scores answers against the TASK_DESCRIPTION. Change the description and you change the reward: "
-     "the task description is your reward specification."),
-    ("Why does the notebook generate 2 rollouts per input instead of 1?",
-     "Relative methods need comparisons. With one answer per input there is nothing to rank within the group."),
-    ("What would happen in training if the judge gave every answer in a group the same score?",
-     "All group-relative advantages would be 0, so that group would not change the model at all."),
+    ("Where does the reward come from in this setup?",
+     "From the judge, which scores the policy's answers against your task description. Change the description and "
+     "you change the reward: the description is your reward specification."),
+    ("Why does the model answer each input several times?",
+     "Relative methods need comparisons. With one answer per input there is nothing to rank inside the group, so "
+     "there is no signal for which way to push."),
+    ("A group where every answer scores 1.0: good news for training?",
+     "No: all advantages are 0, so that step teaches nothing. A more demanding description, or more answers per "
+     "input, creates the differences learning needs."),
+    ("Why do the training inputs not need answers?",
+     "The model writes the answers itself during training, and the judge decides how good they are. You only need "
+     "realistic prompts for the skill."),
 ]:
     st.markdown(f"**{question}**")
     with st.expander("Reveal"):

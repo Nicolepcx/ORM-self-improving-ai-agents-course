@@ -40,7 +40,8 @@ def _global_counter() -> _GlobalCounter:
 @st.cache_resource
 def client() -> OpenAI:
     """One OpenAI-compatible client pointed at OpenRouter, shared by all sessions (thread-safe)."""
-    return OpenAI(base_url=OPENROUTER_BASE_URL, api_key=os.environ["OPENROUTER_API_KEY"])
+    # A hung provider request retries after 90 s instead of freezing the page for minutes.
+    return OpenAI(base_url=OPENROUTER_BASE_URL, api_key=os.environ["OPENROUTER_API_KEY"], timeout=90, max_retries=2)
 
 
 def is_configured() -> bool:
