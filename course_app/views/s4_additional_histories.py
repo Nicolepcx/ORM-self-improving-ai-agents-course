@@ -1,7 +1,7 @@
 import streamlit as st
 
 from core.trajectory_view import render_trajectory
-from core.ui import code_panel, page_header, takeaway, task
+from core.ui import code_panel, page_header, takeaway, task_card
 from labs import additional_histories as ah
 from labs import s4_notebook_source as src
 
@@ -17,9 +17,31 @@ page_header(
     minutes=15,
     notebook_path="hands_on/session_04_HANDS_ON_additional_histories.ipynb",
 )
-task(
-    "Open each of the three examples. Flip <b>What does training see?</b> and note what the model "
-    "would miss with the main conversation alone. Then look at how the reward is computed in <b>④ Reward</b>."
+task_card(
+    task="Create a trajectory with additional history from multi-turn conversations within your multi-agent "
+         "collaboration.",
+    todos=[
+        "**Open the three trajectories:** sub-agent delegation, history compaction, reasoning tokens.",
+        "**Inspect their structure:** the main `messages_and_choices`, the `additional_histories` and the `metrics`. "
+        "The ART code panel under each shows how the trajectory is created.",
+        "**Flip “What does training see?”** and note what the model would never learn from with the main "
+        "conversation alone.",
+        "**④ Reward:** see how one reward, computed from the main conversation, is shared by every history. "
+        "To create your own, copy one example in the notebook and add your agents' conversations.",
+    ],
+    why=(
+        "In real agent systems the main user-facing conversation is often **not** where the work happens. "
+        "It happens in sub-agent conversations, tool-call traces, reasoning tokens the chat template removes, "
+        "and long conversations that later get summarized.\n"
+        "- If you train only on the final coordinator transcript, you lose the information that **caused** the "
+        "reward. That breaks **credit assignment** and slows learning.\n"
+        "- **Additional histories** attach those conversations to the trajectory, so the model can learn how to "
+        "delegate, how to evaluate sub-agent output and how to combine results.\n"
+        "- RULER can't score additional histories yet, so the reward comes from the main conversation; the "
+        "histories carry the **training signal**."
+    ),
+    remember="The final chat transcript is not the full behaviour of an agent. Additional histories are how you "
+             "train on what actually happened.",
 )
 
 st.markdown("##### How to read a trajectory")

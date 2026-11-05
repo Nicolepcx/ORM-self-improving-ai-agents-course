@@ -3,7 +3,7 @@ import random
 import pandas as pd
 import streamlit as st
 
-from core.ui import code_panel, page_header, takeaway, task
+from core.ui import code_panel, page_header, takeaway, task_card
 from labs import frozen_lake as fl
 from labs import frozen_lake_viz as viz
 
@@ -20,10 +20,30 @@ page_header(
     minutes=15,
     notebook_path="hands_on/session_01_HANDS_ON_frozen_lake.ipynb",
 )
-task(
-    "Look at <b>① The game</b> and <b>② Untrained agent</b> first. Then, in <b>③ Train & play</b>, "
-    "pick your settings, predict what will happen, press <b>Train & play</b> and watch your agent. "
-    "Change one setting at a time. <b>④ Experiments</b> has questions to guide you."
+task_card(
+    task="Run a notebook with a simplified Frozen Lake Game world. Adjust the policy to see how this influences "
+         "the trajectories and success rate.",
+    todos=[
+        "**① The game:** read the rules and the reward: a small cost per step, +1 for the goal, −1 for a hole.",
+        "**② Untrained agent:** play a few episodes with the uniform policy and read its trajectory step by step.",
+        "**③ Train & play:** change **one** policy setting at a time (learning rate, exploration ε, slippery ice, "
+        "iterations, rollouts), predict what happens, press **Train & play**, and compare the trajectories and the "
+        "success rate before vs after.",
+        "**④ Experiments:** answer the questions, then reveal.",
+    ],
+    why=(
+        "Frozen Lake is the *Hello World* of RL and your foundational blueprint: the mechanics are the same as "
+        "training an LLM agent to use tools or reason through a prompt.\n"
+        "- **Policy:** the agent's “brain”. Here a table of weights + softmax; in an LLM, the model weights and logits.\n"
+        "- **Rollouts → trajectories:** playing the policy produces the transcript of an episode.\n"
+        "- **Rewards:** the bridge between performance and optimization. The step cost works like penalizing "
+        "looping or redundant reasoning in an LLM.\n"
+        "- **Advantage = reward − baseline:** did better than expected → those actions become more likely. "
+        "That is the path to GRPO later in the course.\n\n"
+        "Adjusting the policy settings makes the trade-offs tangible: exploration vs exploitation, and fast vs stable learning."
+    ),
+    remember="Rollout → reward → update → repeat. The policy improves by making actions from better-than-expected "
+             "trajectories more likely.",
 )
 
 

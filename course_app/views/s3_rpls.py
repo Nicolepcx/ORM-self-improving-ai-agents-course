@@ -6,7 +6,7 @@ import streamlit as st
 from core import llm
 from core.code_input import editor, parse_kwarg_value, parse_message_content
 from core.trajectory_view import render_trajectory
-from core.ui import code_panel, page_header, takeaway, task
+from core.ui import code_panel, page_header, takeaway, task_card
 from labs import rpls
 from labs import rpls_viz as viz
 from labs import s3_notebook_source as src
@@ -24,9 +24,30 @@ page_header(
     minutes=20,
     notebook_path="hands_on/session_03_HANDS_ON_rock_paper_lizard_spock.ipynb",
 )
-task(
-    "Fill in <b>TODO 1</b> and <b>TODO 2</b>, press <b>Run rollout()</b> to create valid trajectories, "
-    "and observe how the metrics update as the game progresses. Then change your instruction and run again."
+task_card(
+    task="Design a training loop to teach your agent to play Rock Paper Scissors Lizard Spock.",
+    todos=[
+        "**TODO 1, the system instruction:** tell the agent its role, that it **must use the `play_move` tool**, "
+        "and that only valid moves are allowed.",
+        "**TODO 2, the metrics dictionary:** decide what to measure: rounds, how often each move is played, "
+        "invalid or missing moves (`nothing`).",
+        "**Run `rollout()`** to create trajectories, and watch the metrics update round by round.",
+        "**Change your instruction** and run again: compare the trajectories and metrics in *Your runs*.",
+    ],
+    why=(
+        "This exercise teaches the core skill of every RL-for-agents system: **turning agent behaviour into "
+        "measurable signals**.\n"
+        "- **Trajectories** describe what happened, step by step: tool calls, arguments, environment feedback, "
+        "multiple turns.\n"
+        "- **Metrics are not the reward.** They are your debugging interface. That's why `normalize_move` turns "
+        "every outcome, even failure, into something you can count.\n"
+        "- **The system instruction is the behavioural contract.** Small wording changes can drastically change "
+        "learning outcomes.\n\n"
+        "A reward function is only as good as the trajectory and metrics behind it. If you can't reliably capture "
+        "what the agent did, no RL algorithm will save you. (Training the model itself needs a GPU and is optional, "
+        "after the session.)"
+    ),
+    remember="Trajectories describe behaviour. Metrics make behaviour debuggable.",
 )
 
 if not llm.is_configured():

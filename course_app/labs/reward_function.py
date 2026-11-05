@@ -7,6 +7,7 @@ Differences, all forced by running outside the notebook:
   - the OpenAI client pointed at OpenRouter instead of litellm's `acompletion`
   - synchronous calls instead of `await`
   - `print(...)` progress goes to a callback so the page can show it
+  - a clearer input-generation prompt: inputs are what a user sends, never the expected output
   - `robust_score_group` takes the candidate outputs directly instead of an
     `art.TrajectoryGroup` (it only ever reads each trajectory's last message)
 Errors are not swallowed beyond what the notebook itself does.
@@ -21,8 +22,10 @@ from pydantic import BaseModel, Field
 
 from labs.s2_notebook_source import TASK_DESCRIPTIONS
 
-RULER_MODEL = "deepseek/deepseek-r1-0528"  # "openrouter/deepseek/deepseek-r1-0528" in the notebook
-INPUT_GENERATION_MODEL = "moonshotai/kimi-k2"  # "openrouter/moonshotai/kimi-k2" in the notebook
+# The notebook uses "openrouter/deepseek/deepseek-r1-0528" (judge) and "openrouter/moonshotai/kimi-k2"
+# (input generation). In the lab both were too slow or unreliable for a live session, so the lab uses:
+RULER_MODEL = "openai/gpt-6-luna-pro"
+INPUT_GENERATION_MODEL = "openai/gpt-6-luna-pro"
 NUM_TRAINING_INPUTS = 25  # TRAINING_CONFIG["num_training_inputs"]
 MAX_GENERATION_ATTEMPTS = 8
 
@@ -94,10 +97,16 @@ def generate_training_inputs(client, task_description: str, num_examples: int = 
     Robust to models returning fewer items, wrong shape, code fences, or extra text.
     Returns the inputs and the number of model calls used.
     """
+    # Clearer than the notebook's prompt: some models read the task description as
+    # "do the task" and return finished outputs (e.g. text already wrapped in correction tags).
     system_prompt = f"""
-You generate training inputs.
+You generate training INPUTS for a model that will later be trained on the task below.
 
-Task:
+The task describes what that model must do WITH each input. You do NOT perform the task.
+Write only the raw input the model will receive: what a real user would send, before any processing.
+Never include the expected output, a solution, corrections, tags, labels or formatting from the task's output format.
+
+Task the model will be trained on:
 {task_description}
 
 Return STRICT JSON only. No prose. No markdown. No code fences.
@@ -113,6 +122,7 @@ Schema:
 Rules:
 - Return exactly {num_examples} items in "inputs".
 - Each "input" must be realistic and different.
+- Each "input" is raw user input, never the answer or the transformed result.
 - No duplicates.
 """.strip()
 

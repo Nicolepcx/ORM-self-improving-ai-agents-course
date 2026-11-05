@@ -7,7 +7,7 @@ import streamlit as st
 
 from core import llm
 from core.trajectory_view import render_trajectory
-from core.ui import code_panel, page_header, takeaway, task
+from core.ui import code_panel, page_header, takeaway, task_card
 from labs import mcp_tools as mt
 from labs import s5_notebook_source as src
 from labs.trajectory import Trajectory, from_openai_message
@@ -23,9 +23,28 @@ page_header(
     minutes=15,
     notebook_path="hands_on/session_05_HANDS_ON_MCP_server_composio.ipynb",
 )
-task(
-    "Adjust <code>USE_CASE</code> and optionally <code>NUM_SCENARIOS</code> and <code>MAX_TURNS</code>. "
-    "Run the three steps and inspect the tools found, the workflow the agent proposes and the generated scenarios."
+task_card(
+    task="Add more comparisons and better tools to improve the agent's MCP server usage.",
+    todos=[
+        "**Set `USE_CASE`** to something you'd want your agent to do, ideally a workflow that needs two apps "
+        "(e.g. GitHub and Slack).",
+        "**Better tools:** search Composio and look at which tools, plan and pitfalls the agent gets for it.",
+        "**Run the workflow** and see how the agent plans with those tools (and what it says when a tool is missing).",
+        "**More comparisons:** generate scenarios. `NUM_SCENARIOS` sets how many different tasks you'd roll out and "
+        "compare, `MAX_TURNS` how deep each workflow may go.",
+    ],
+    why=(
+        "This exercise shows how easily you can give an agent **more tools**: instead of hard-coding every "
+        "integration, the agent searches **Composio** for tools that match a natural-language use case, "
+        "across hundreds of app toolkits.\n"
+        "- Agents move from *“I have one tool”* to *“I have hundreds of tools, how do I decide?”*: tool discovery, "
+        "selection, workflow planning, connection management, multi-turn tool use.\n"
+        "- **Better tools:** complementary toolkits make realistic, multi-tool workflows possible.\n"
+        "- **More comparisons:** more scenarios and more trajectories per scenario give RULER a richer, relative "
+        "learning signal when you train."
+    ),
+    remember="Modern agents don't just call tools. They discover, plan, authenticate and compose them dynamically, "
+             "and Composio is one layer that makes that possible.",
 )
 
 if not llm.is_configured() or not os.getenv("COMPOSIO_API_KEY"):

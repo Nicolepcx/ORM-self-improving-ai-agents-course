@@ -5,7 +5,7 @@ import streamlit as st
 from plotly.subplots import make_subplots
 
 from core import llm
-from core.ui import code_panel, page_header, takeaway, task
+from core.ui import code_panel, page_header, takeaway, task_card
 from labs import reward_function as rf
 from labs import s2_notebook_source as src
 
@@ -20,9 +20,27 @@ page_header(
     minutes=15,
     notebook_path="hands_on/session_02_HANDS_ON_reward_function.ipynb",
 )
-task(
-    "Teach your model another skill: set <code>TASK_DESCRIPTION</code> to one of the sample tasks or write your own. "
-    "Generate the training inputs for it, then run the judge demo and see how the judge scores answers against your task."
+task_card(
+    task="Write a task description for your reward function to teach your AI agent a new skill.",
+    todos=[
+        "**Write your `TASK_DESCRIPTION`**: pick a sample task or write your own. Be specific about the input "
+        "and the exact output format.",
+        "**Generate the training inputs** and check them: are they realistic *inputs* for your task?",
+        "**Run the judge demo** and read how the judge scores each answer against your description.",
+        "**Change the description** (or switch task) and judge again. Does the ranking change?",
+    ],
+    why=(
+        "In this setup nobody writes labels. A model generates the training inputs, the policy produces a **group** "
+        "of answers per input, and a **judge** (RULER-style) scores them. Training then makes the higher-scored "
+        "answers more likely.\n"
+        "- That makes the **task description your reward specification**, the most important control knob: "
+        "the judge only knows what “good” means from what you write.\n"
+        "- You don't need one perfect label, you need **comparisons and ranking signals**.\n"
+        "- Making the description more precise about priorities, constraints and format is a first-class way to "
+        "improve the trained model."
+    ),
+    remember="RULER learns what “good” means entirely from your task description and relative comparisons. "
+             "No labeled outputs required.",
 )
 
 if not llm.is_configured():
@@ -36,6 +54,8 @@ c2.markdown(f"**B · Judge rollouts**\n\n`{rf.RULER_MODEL}` scores every answer 
             "and returns strict JSON.")
 c3.markdown("**C · Update the policy**\n\nART trains a LoRA adapter so high-reward answers become more likely. "
             "*This step needs a GPU: run it in Colab.*")
+st.caption(f"The notebook uses `moonshotai/kimi-k2` to generate inputs and `deepseek/deepseek-r1-0528` as judge. "
+           f"This lab uses `{rf.INPUT_GENERATION_MODEL}` for both, so it responds within a live session.")
 code_panel("Notebook settings", src.SETTINGS)
 
 st.divider()
@@ -72,7 +92,7 @@ if st.button(f"Generate {rf.NUM_TRAINING_INPUTS} training inputs", icon=":materi
     else:
         logs, calls = [], rf.MAX_GENERATION_ATTEMPTS
         start = time.time()
-        with st.status(f"Calling {rf.INPUT_GENERATION_MODEL}… this model can take a few minutes", expanded=True) as status:
+        with st.status(f"Calling {rf.INPUT_GENERATION_MODEL}…", expanded=True) as status:
             try:
                 inputs, calls = rf.generate_training_inputs(
                     llm.client(), task_description, num_examples=rf.NUM_TRAINING_INPUTS,
@@ -126,7 +146,7 @@ if st.button("Score the group with the judge", type="primary", icon=":material/g
         st.warning(str(e))
     else:
         start = time.time()
-        with st.spinner(f"{rf.RULER_MODEL} is reasoning about the answers… usually under a minute"):
+        with st.spinner(f"{rf.RULER_MODEL} is judging the answers…"):
             try:
                 judgement = rf.robust_score_group(llm.client(), list(rf.JUDGE_DEMO_CANDIDATES.values()),
                                                   judge_model=rf.RULER_MODEL, task_description=task_description)

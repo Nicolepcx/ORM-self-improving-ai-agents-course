@@ -29,6 +29,28 @@ def task(text: str) -> None:
     )
 
 
+def task_card(task: str, todos: list[str], why: str, remember: str) -> None:
+    """
+    The hands-on task, as given in the course outline, with what to do on this page
+    and why: the learning goal, taken from the notebook's own explanation.
+    """
+    st.markdown(
+        f"""<div class="lab-task"><div class="lab-task-label">Hands-on task</div><b>{task}</b></div>""",
+        unsafe_allow_html=True,
+    )
+    left, right = st.columns([1, 1.15], gap="large")
+    with left:
+        st.markdown("**Your TODOs**")
+        st.markdown("\n".join(f"{i}. {step}" for i, step in enumerate(todos, 1)))
+    with right:
+        st.markdown("**Why you're doing this**")
+        st.markdown(why)
+    st.markdown(
+        f"""<div class="lab-takeaway"><div class="lab-task-label">If you remember one thing</div>{remember}</div>""",
+        unsafe_allow_html=True,
+    )
+
+
 def code_panel(title: str, objs: Callable | Iterable[Callable] | str, why: str = "") -> None:
     """
     Collapsible "the code behind this" panel.
