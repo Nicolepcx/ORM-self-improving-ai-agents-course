@@ -26,6 +26,10 @@ pages = {
         st.Page("views/s4_additional_histories.py", title="4 · Additional histories", icon=":material/account_tree:", url_path="additional-histories"),
         st.Page("views/s5_mcp_tools.py", title="5 · MCP tools", icon=":material/build:", url_path="mcp-tools"),
     ],
+    "Outlook": [
+        st.Page("views/o1_weight_space_programming.py", title="Weight-Space Programming", icon=":material/neurology:",
+                url_path="weight-space-programming"),
+    ],
 }
 
 # Resolve the page before the password gate so deep links survive the login.

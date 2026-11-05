@@ -13,12 +13,13 @@ def colab_url(notebook_path: str) -> str:
     return f"https://colab.research.google.com/github/{REPO}/blob/main/{notebook_path}"
 
 
-def page_header(session: int, title: str, subtitle: str, minutes: int, notebook_path: str,
+def page_header(session: int, title: str, subtitle: str, minutes: int, notebook_path: str | None,
                 kind: str = "HANDS-ON") -> None:
     st.caption(f"SESSION {session} · {kind} · {minutes} MIN")
     st.title(title)
     st.markdown(subtitle)
-    st.link_button("Open the full notebook in Colab", colab_url(notebook_path), icon=":material/open_in_new:")
+    if notebook_path:
+        st.link_button("Open the full notebook in Colab", colab_url(notebook_path), icon=":material/open_in_new:")
 
 
 def task(text: str) -> None:

@@ -10,6 +10,7 @@ The notebooks stay the "take it home" version.
 | 2 · Reward function | ✅ | OpenRouter (`openai/gpt-6-luna-pro` for inputs and as judge; the notebook uses kimi-k2 and deepseek-r1-0528) |
 | 3 · Rock Paper Lizard Spock | ✅ | OpenRouter (`qwen/qwen-2.5-7b-instruct`, the notebook's base model) |
 | 4 · Additional histories | ✅ | nothing |
+| Outlook · Weight-Space Programming | ✅ | nothing at runtime: Exp 3 weight analysis and logs precomputed into `labs/data/wsp_exp3.json` (CC BY 4.0, Takehi et al.) |
 | 5 · MCP tools | ✅ | Composio (Tool Router search + notebook fallback), OpenRouter (`openai/gpt-6-luna`, replacing the notebook's retired `openai/o4-mini`), ART `generate_scenarios` |
 
 ## Run locally
